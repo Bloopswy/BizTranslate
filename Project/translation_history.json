@@ -1,0 +1,24 @@
+[
+    {
+        "original_text": "I am hungry",
+        "source_lang": "English",
+        "target_lang": "Javanese",
+        "transcription": "",
+        "translated_text": "Aku wetengku luwe.",
+        "complexity": "Low",
+        "word_count": 3,
+        "flagged_for_review": false,
+        "routing_status": "Direct Delivery"
+    },
+    {
+        "original_text": "I am hungry",
+        "source_lang": "English",
+        "target_lang": "Chinese",
+        "transcription": "",
+        "translated_text": "我饿了",
+        "complexity": "Low",
+        "word_count": 3,
+        "flagged_for_review": false,
+        "routing_status": "Direct Delivery"
+    }
+]
