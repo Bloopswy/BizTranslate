@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice recorder</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --ink: #17202a;
+    --muted: #5b6773;
+    --line: #d5dbe1;
+    --signal: #d62828;
+    --signal-ink: #ffffff;
+    --focus: #1b5fd1;
+    box-sizing: border-box;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12171c;
+      --panel: #1b222a;
+      --ink: #e8edf2;
+      --muted: #9aa6b2;
+      --line: #313b45;
+      --signal: #ff5a5a;
+      --signal-ink: #1a0000;
+      --focus: #7fb0ff;
+    }
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans SC", sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; font-weight: 650; }
+  .lede { color: var(--muted); margin: 0 0 28px; max-width: 60ch; }
+  fieldset { border: 0; padding: 0; margin: 0 0 24px; }
+  legend { font-weight: 600; margin-bottom: 8px; padding: 0; }
+  .langs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .langs label {
+    border: 1px solid var(--line); background: var(--panel);
+    padding: 8px 14px; border-radius: 6px; cursor: pointer;
+  }
+  .langs input { position: absolute; opacity: 0; pointer-events: none; }
+  .langs label:has(input:checked) { border-color: var(--ink); outline: 2px solid var(--ink); outline-offset: -2px; font-weight: 600; }
+  .langs label:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .stage { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+  #rec {
+    width: 84px; height: 84px; border-radius: 50%; border: 0; cursor: pointer;
+    background: var(--signal); color: var(--signal-ink); font-weight: 700; font-size: 0.95rem;
+    flex: none;
+  }
+  #rec[aria-pressed="true"] { border-radius: 14px; animation: pulse 1.4s ease-in-out infinite; }
+  #status { color: var(--muted); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--signal) 25%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { #rec[aria-pressed="true"] { animation: none; } }
+  button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  textarea {
+    width: 100%; min-height: 120px; resize: vertical; padding: 12px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink);
+    font: inherit;
+  }
+  .row { display: flex; gap: 8px; margin: 10px 0 32px; flex-wrap: wrap; }
+  .btn {
+    padding: 9px 16px; border-radius: 6px; border: 1px solid var(--ink);
+    background: var(--ink); color: var(--bg); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn.quiet { background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  h2 { font-size: 1.1rem; margin: 0 0 8px; }
+  ul { list-style: none; padding: 0; margin: 0 0 16px; }
+  li {
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); margin-bottom: 8px;
+  }
+  li .meta { grid-column: 1; color: var(--muted); font-size: 0.85rem; }
+  li .text { grid-column: 1; overflow-wrap: anywhere; }
+  li button { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .empty { color: var(--muted); }
+  #error { color: var(--signal); min-height: 1.5em; margin: 0 0 12px; }
+  .note { color: var(--muted); font-size: 0.9rem; max-width: 60ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voice recorder</h1>
+  <p class="lede">Speak, check the transcript, add it to the list, then download the file and put it in the project's <code>input</code> folder.</p>
+
+  <fieldset>
+    <legend>Language you will speak</legend>
+    <div class="langs">
+      <label><input type="radio" name="lang" value="en-US" checked>English</label>
+      <label><input type="radio" name="lang" value="zh-CN">中文 Chinese</label>
+      <label><input type="radio" name="lang" value="id-ID">Bahasa Indonesia</label>
+    </div>
+  </fieldset>
+
+  <div class="stage">
+    <button id="rec" type="button" aria-pressed="false">Record</button>
+    <div id="status" role="status" aria-live="polite">Ready.</div>
+  </div>
+  <div id="error" role="alert"></div>
+
+  <label for="transcript" class="sr-only" style="position:absolute;left:-9999px">Transcript</label>
+  <textarea id="transcript" placeholder="Your words appear here. You can fix mistakes before adding."></textarea>
+  <div class="row">
+    <button id="add" class="btn" type="button" disabled>Add to list</button>
+    <button id="clear" class="btn quiet" type="button">Clear text</button>
+  </div>
+
+  <h2>Saved transcripts (<span id="count">0</span>)</h2>
+  <ul id="list"></ul>
+  <p id="empty" class="empty">Nothing added yet.</p>
+  <div class="row" style="margin-top:0">
+    <button id="download" class="btn" type="button" disabled>Download transcripts.json</button>
+  </div>
+
+  <p class="note">The browser's speech recogniser needs to be told the language up front, so pick it before you record. The Python app then detects the language again from the text and flags any mismatch. Works in Chrome and Edge; Firefox does not support speech recognition.</p>
+</main>
+
+<script>
+(function () {
+  var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recBtn = document.getElementById("rec");
+  var statusEl = document.getElementById("status");
+  var errorEl = document.getElementById("error");
+  var box = document.getElementById("transcript");
+  var addBtn = document.getElementById("add");
+  var clearBtn = document.getElementById("clear");
+  var listEl = document.getElementById("list");
+  var emptyEl = document.getElementById("empty");
+  var countEl = document.getElementById("count");
+  var downloadBtn = document.getElementById("download");
+
+  var items = [];
+  var recognition = null;
+  var listening = false;
+  var committedText = "";   // finalised text from this recording session
+
+  function selectedLang() {
+    return document.querySelector('input[name="lang"]:checked').value;
+  }
+  function setStatus(text) { statusEl.textContent = text; }
+  function setError(text) { errorEl.textContent = text || ""; }
+  function refreshButtons() {
+    addBtn.disabled = box.value.trim() === "";
+    downloadBtn.disabled = items.length === 0;
+  }
+
+  function renderList() {
+    listEl.textContent = "";
+    items.forEach(function (item, index) {
+      var li = document.createElement("li");
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = item.selected_lang + " \u2022 " + new Date(item.timestamp).toLocaleTimeString();
+      var text = document.createElement("div");
+      text.className = "text";
+      text.textContent = item.transcript;
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn quiet";
+      del.textContent = "Remove";
+      del.addEventListener("click", function () {
+        items.splice(index, 1);
+        renderList();
+      });
+      li.appendChild(meta); li.appendChild(text); li.appendChild(del);
+      listEl.appendChild(li);
+    });
+    countEl.textContent = String(items.length);
+    emptyEl.style.display = items.length ? "none" : "block";
+    refreshButtons();
+  }
+
+  function startListening() {
+    setError("");
+    committedText = box.value.trim() ? box.value.trim() + " " : "";
+    recognition = new Recognition();
+    recognition.lang = selectedLang();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = function (event) {
+      var interim = "";
+      for (var i = event.resultIndex; i < event.results.length; i++) {
+        var piece = event.results[i][0].transcript;
+        if (event.results[i].isFinal) { committedText += piece + " "; }
+        else { interim += piece; }
+      }
+      box.value = (committedText + interim).trim();
+      refreshButtons();
+    };
+    recognition.onerror = function (event) {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setError("Microphone access was blocked. Allow the microphone for this page and try again.");
+        stopListening();
+      } else if (event.error === "no-speech") {
+        setStatus("Listening... no speech heard yet.");
+      } else if (event.error !== "aborted") {
+        setError("Speech recognition error: " + event.error);
+      }
+    };
+    recognition.onend = function () {
+      // Chrome ends sessions after silence; restart while the user still wants to record.
+      if (listening) { try { recognition.start(); } catch (e) { stopListening(); } }
+    };
+
+    try {
+      recognition.start();
+      listening = true;
+      recBtn.setAttribute("aria-pressed", "true");
+      recBtn.textContent = "Stop";
+      setStatus("Listening in " + selectedLang() + "...");
+    } catch (e) {
+      setError("Could not start recording: " + e.message);
+    }
+  }
+
+  function stopListening() {
+    listening = false;
+    if (recognition) { try { recognition.stop(); } catch (e) {} }
+    recBtn.setAttribute("aria-pressed", "false");
+    recBtn.textContent = "Record";
+    setStatus("Stopped. Check the text, then add it to the list.");
+  }
+
+  if (!Recognition) {
+    recBtn.disabled = true;
+    setStatus("Not available.");
+    setError("This browser does not support speech recognition. Open this page in Chrome or Edge.");
+  }
+
+  recBtn.addEventListener("click", function () {
+    if (listening) stopListening(); else startListening();
+  });
+  box.addEventListener("input", refreshButtons);
+  clearBtn.addEventListener("click", function () { box.value = ""; committedText = ""; refreshButtons(); });
+
+  addBtn.addEventListener("click", function () {
+    var text = box.value.trim();
+    if (!text) return;
+    items.push({ timestamp: new Date().toISOString(), selected_lang: selectedLang(), transcript: text });
+    box.value = ""; committedText = "";
+    renderList();
+    setStatus("Added. Record another or download the file.");
+  });
+
+  downloadBtn.addEventListener("click", function () {
+    var blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = "transcripts-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  renderList();
+})();
+</script>
+</body>
+</html>
