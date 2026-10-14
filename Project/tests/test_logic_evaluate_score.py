@@ -1,3 +1,6 @@
+"""Tests for logic_manager: evaluate and score."""
+
+
 import logic_manager
 
 from helpers import (utterance, merged)
