@@ -75,3 +75,37 @@ def last_sentences(records, meeting, count):
     if count <= 0:
         return []
     return meeting_records(records, meeting)[-count:]
+
+
+# FOR FILTERING
+
+def filter_records_multi(records, tones=None, languages=None, target_languages=None, speakers=None,
+                         match="all", outcome=None, meeting=None):
+    """Filter by tones and/or languages (and/or speaker).
+
+    tones / languages / target_languages / speakers are lists of allowed values (None or empty =
+    ignore that criterion). `languages` is the language the speaker actually used (as detected by the
+    AI), `target_languages` the language it was translated into, `speakers` the speaker's name.
+
+    match="all": a record must satisfy every criterion that has a selection (AND).
+    match="any": a record must satisfy at least one of them (OR).
+    outcome and meeting are extra narrowing filters that always apply (AND).
+    """
+    criteria = []
+    for field, allowed in (("tone", tones), ("detected_language", languages),
+                           ("target_language", target_languages), ("speaker_name", speakers)):
+        if allowed:
+            criteria.append((field, set(allowed)))
+
+    matches = []
+    for record in records:
+        if criteria:
+            tests = [record.get(field) in allowed for field, allowed in criteria]
+            if not (any(tests) if match == "any" else all(tests)):
+                continue
+        if outcome is not None and record.get("outcome") != outcome:
+            continue
+        if meeting is not None and record.get("meeting") != meeting:
+            continue
+        matches.append(record)
+    return sort_records(matches)
