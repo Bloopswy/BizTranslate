@@ -27,6 +27,12 @@ OUTCOME_CHECK = "CHECK"
 OUTCOME_ACCEPT = "ACCEPT"
 OUTCOME_REJECT = "REJECT"
 
+TENSION_TONES = ("angry", "frustrated", "anxious")
+TENSION_MIN_INTENSITY = 4
+TENSION_MIN_TONE_CONFIDENCE = 0.7
+MIN_LANGUAGE_CONFIDENCE = 0.6
+MIN_TRANSLATION_CONFIDENCE = 0.6
+
 def evaluate(record):
     """Apply the business rules. Returns {"reject": [...], "check": [...], "tension": [...]},
     each a list of human-readable reasons (an empty list means that rule did not fire)."""
@@ -46,6 +52,13 @@ def evaluate(record):
         findings["check"].append("%s is set to %s but the AI heard %s"
                                  % (record.get("speaker_name", "the speaker"), expected,
                                     record["detected_language"]))
+    if (
+        record["tone"] in TENSION_TONES
+        and record["intensity"] >= TENSION_MIN_INTENSITY
+        and record["tone_confidence"] >= TENSION_MIN_TONE_CONFIDENCE
+    ):
+        findings["tension"].append("%s tone (confidence %.2f) at intensity %d"
+                                   % (record["tone"], record["tone_confidence"], record["intensity"]))
     return findings
 
 def route(record):
