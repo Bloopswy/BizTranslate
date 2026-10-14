@@ -470,3 +470,41 @@ def show_transcript(records, tz_name=None):
 
 def show_summary(records):
     show_message(format_summary(records))
+
+
+# ---------- exports (used by the web app's download buttons) ----------
+
+CSV_COLUMNS = [
+    "meeting", "seq", "timestamp", "speaker_name", "speaker_language", "listener_name", "target_language",
+    "transcript", "translation", "detected_language", "language_confidence", "translation_confidence",
+    "tone", "tone_confidence", "intensity", "tone_reason", "outcome", "reasons", "input_type", "id",
+]
+
+
+def safe_filename(text):
+    """A file-name-friendly version of a meeting name."""
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(text)).strip("._")
+    return cleaned or "meeting"
+
+
+def records_to_csv(records):
+    """CSV text of the records (reasons joined with '; ')."""
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for record in records:
+        row = dict(record)
+        row["reasons"] = "; ".join(record.get("reasons", []))
+        writer.writerow(row)
+    return buffer.getvalue()
+
+
+def records_to_text(records, tz_name=None):
+    """Plain-text meeting minutes: one block per sentence with date and time."""
+    blocks = []
+    for record in records:
+        blocks.append("[%s] %s\n  Said: %s\n  Translation: %s\n  Tone: %s\n  Flag: %s" % (
+            format_clock(record.get("timestamp"), tz_name, with_date=True), direction_text(record),
+            record.get("transcript", ""), record.get("translation", ""), record.get("tone", "?"),
+            record.get("outcome", "?")))
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
