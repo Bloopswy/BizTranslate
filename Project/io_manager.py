@@ -109,3 +109,16 @@ def prompt_sentence():
             show_error("the sentence is too long (max %d characters)" % MAX_SENTENCE_CHARS)
         else:
             return text
+
+def prompt_speaker(setup):
+    """Returns 'A' or 'B', or None if input ended."""
+    show_message("Who is speaking?  1) %s   2) %s" % (describe_party(setup, "A"), describe_party(setup, "B")))
+    choice = prompt_choice("Speaker 1-2: ", ["1", "2"])
+    return None if choice is None else PARTY_IDS[int(choice) - 1]
+
+def prompt_language_or_keep(label, current):
+    show_message("%s: 1) English  2) Indonesian  3) Chinese  (Enter keeps %s)" % (label, current))
+    choice = prompt_choice("Choice: ", ["", "1", "2", "3"])
+    if choice is None:
+        return None
+    return current if choice == "" else LANGUAGES[int(choice) - 1]
