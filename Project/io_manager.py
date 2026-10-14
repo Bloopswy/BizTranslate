@@ -407,3 +407,13 @@ def format_short_sentence(record, tz_name=None):
     return "[%s] %s (%s): %s\n           -> %s" % (
         format_clock(record.get("timestamp"), tz_name), record.get("speaker_name", "?"),
         record.get("speaker_language", "?"), record.get("transcript", ""), record.get("translation", ""))
+
+
+def format_conversation(latest, previous, tz_name=None):
+    """The latest sentence in full, then the previous sentences in short form."""
+    if latest is None:
+        return "Nothing has been said in this meeting yet."
+    lines = ["--- Latest translation ---", format_sentence(latest, tz_name),
+             "\n--- Previous %d sentences ---" % len(previous) if previous else "\n(no earlier sentences)"]
+    lines.extend(format_short_sentence(record, tz_name) for record in previous)
+    return "\n".join(lines)
