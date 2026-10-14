@@ -508,3 +508,368 @@ def records_to_text(records, tz_name=None):
             record.get("transcript", ""), record.get("translation", ""), record.get("tone", "?"),
             record.get("outcome", "?")))
     return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+# ======================================================================
+# Streamlit user interface (the web version of the same user boundary)
+# ======================================================================
+
+def _st():
+    """Import Streamlit only when the web UI is used, so the terminal app and the
+    tests do not need it installed."""
+    import streamlit
+    return streamlit
+
+
+def escape_markdown(text):
+    """Make arbitrary text safe to show with st.markdown ($5 must not become LaTeX, '1.' must
+    not become a list, and so on)."""
+    return re.sub(r"([\\`*_{}\[\]()#+\-.!|>~$<])", r"\\\1", str(text))
+
+
+def ui_configure_page():
+    _st().set_page_config(page_title="Meeting Translator", page_icon="\U0001F310", layout="wide")
+
+
+def ui_header():
+    st = _st()
+    st.title("Meeting Translator")
+    st.caption(
+        "A live interpreter for two parties speaking English, Indonesian or Chinese. Each sentence is "
+        "translated into the other party's language, with its tone, and the last sentences stay on screen "
+        "with timestamps."
+    )
+
+
+def _start_new_meeting():
+    """Button callback: give the meeting a fresh name (a new meeting has no earlier sentences)."""
+    _st().session_state["meeting_name"] = "meeting-" + datetime.now().strftime("%Y-%m-%d-%H%M")
+
+
+def resolve_timezone(choice):
+    """Turn the sidebar choice into an IANA zone name ('Auto' uses the browser's zone if known)."""
+    if choice == AUTO_TIMEZONE:
+        browser = getattr(getattr(_st(), "context", None), "timezone", None)
+        return browser if isinstance(browser, str) and browser else "UTC"
+    return choice if choice in TIMEZONE_CHOICES else "UTC"
+
+
+def ui_sidebar(env_key, model_name, speech_model_name=""):
+    """Meeting setup and settings. Returns (api_key, setup, time_zone_name)."""
+    st = _st()
+    with st.sidebar:
+        st.header("Meeting setup")
+        meeting = st.text_input("Meeting name", value=default_meeting_name(), key="meeting_name",
+                                max_chars=MAX_MEETING_CHARS,
+                                help="Sentences with the same meeting name belong together.")
+        st.button("Start a new meeting", key="new_meeting", on_click=_start_new_meeting)
+        parties = {}
+        for party_id, default_language in (("A", "English"), ("B", "Indonesian")):
+            st.markdown("**Party %s**" % party_id)
+            name = st.text_input("Name of party %s" % party_id, value="Party %s" % party_id,
+                                 key="name_%s" % party_id, max_chars=MAX_NAME_CHARS)
+            language = st.selectbox("Language of party %s" % party_id, LANGUAGES,
+                                    index=LANGUAGES.index(default_language), key="language_%s" % party_id)
+            parties[party_id] = {"name": name, "language": language}
+        setup = normalise_setup({"meeting": meeting, "parties": parties})
+        if setup["parties"]["A"]["language"] == setup["parties"]["B"]["language"]:
+            st.warning("Both parties use the same language, so sentences will only be tidied up, not translated.")
+        zone_choice = st.selectbox("Time zone for timestamps", TIMEZONE_CHOICES, key="timezone_choice")
+
+        st.header("Settings")
+        api_key = env_key
+        if env_key:
+            st.success("API key loaded from the environment.")
+        else:
+            api_key = st.text_input("Google AI Studio API key", type="password",
+                                    help="Get one at aistudio.google.com/apikey. It is kept in memory only.")
+        st.write("AI model: `%s`" % model_name)
+        if speech_model_name:
+            st.write("Speech model: `whisper-%s`" % speech_model_name)
+    return api_key.strip(), setup, resolve_timezone(zone_choice)
+
+
+def ui_message(kind, text):
+    """kind is one of: success, error, warning, info."""
+    st = _st()
+    {"success": st.success, "error": st.error, "warning": st.warning}.get(kind, st.info)(text)
+
+
+def ui_progress_start(text):
+    return _st().progress(0.0, text=text)
+
+
+def ui_progress_update(bar, fraction, text):
+    bar.progress(min(max(fraction, 0.0), 1.0), text=text)
+
+
+def ui_progress_clear(bar):
+    bar.empty()
+
+
+def ui_main_tabs():
+    """The three top-level tabs. Returns (live_tab, transcript_tab, filter_tab)."""
+    return _st().tabs(["Live", "Transcript", "Filter"])
+
+
+def _queue_submission(kind):
+    """Button callback for 'Translate'. Moves the text out of its box into a pending slot (so the
+    box is empty for the next sentence) and stamps the time the sentence was submitted."""
+    st = _st()
+    key = "voice_transcript" if kind == "voice" else "text_message"
+    st.session_state["pending_utterance"] = {
+        "kind": kind, "text": st.session_state.get(key, "") or "", "timestamp": now_iso(),
+    }
+    if kind == "voice":
+        st.session_state.pop("voice_transcript", None)
+        st.session_state["voice_counter"] = st.session_state.get("voice_counter", 0) + 1  # fresh recorder
+    else:
+        st.session_state["text_message"] = ""
+
+
+def ui_live_input(setup):
+    """Who is speaking, plus the ways to give a sentence. Returns the list of sentence records
+    submitted on this interaction (empty if the user did nothing)."""
+    st = _st()
+    submitted = []
+
+    labels = {party_id: describe_party(setup, party_id) for party_id in PARTY_IDS}
+    chosen = st.radio("Who is speaking?", PARTY_IDS, format_func=lambda party_id: labels[party_id],
+                      horizontal=True, key="speaker")
+    speaker = chosen if chosen in PARTY_IDS else "A"
+    listener = other_party(speaker)
+    party = setup["parties"][speaker]
+    st.caption("%s speaks %s; it will be translated into %s for %s." % (
+        party["name"], party["language"], setup["parties"][listener]["language"], setup["parties"][listener]["name"]))
+
+    pending = st.session_state.pop("pending_utterance", None)
+
+    tab_voice, tab_text, tab_file, tab_html = st.tabs(
+        ["Record voice", "Type text", "Upload meeting file", "Browser transcription (HTML)"]
+    )
+
+    with tab_voice:
+        st.write("**1.** Record  **2.** Transcribe  **3.** Check the text, then translate. "
+                 "Only the text is sent to the AI, never the audio.")
+        audio = st.audio_input("Record %s" % party["name"], key="voice_audio_%d" % st.session_state.get("voice_counter", 0))
+        if audio is not None and st.button("Transcribe", key="voice_transcribe"):
+            data = audio.getvalue()
+            if not data:
+                ui_message("error", "The recording is empty. Record again.")
+            elif len(data) > MAX_AUDIO_BYTES:
+                ui_message("error", "The recording is larger than %d MB. Record a shorter sentence."
+                           % (MAX_AUDIO_BYTES // (1024 * 1024)))
+            else:
+                with st.spinner("Transcribing... (the first run downloads the speech model)"):
+                    text, _code, error = transcribe_audio(data, LANGUAGE_TO_SPEECH_CODE[party["language"]])
+                if error:
+                    ui_message("error", error)
+                elif not text:
+                    ui_message("warning", "No speech was detected. Check your microphone and record again.")
+                else:
+                    st.session_state["voice_transcript"] = text  # set before the text box is created
+        if "voice_transcript" in st.session_state:
+            st.text_area("Transcript (fix any mistakes before translating)", key="voice_transcript",
+                         max_chars=MAX_SENTENCE_CHARS, height=120)
+            st.button("Translate", type="primary", key="voice_translate",
+                      on_click=_queue_submission, args=("voice",))
+
+    with tab_text:
+        st.text_area("Sentence", key="text_message", max_chars=MAX_SENTENCE_CHARS, height=100,
+                     placeholder="Type what %s says" % party["name"])
+        st.button("Translate", type="primary", key="text_translate",
+                  on_click=_queue_submission, args=("text",))
+
+    with tab_file:
+        st.write("Upload a meeting file: `.json` (see the README) or `.txt` with lines like `A: Good morning` "
+                 "or `[2026-10-14T09:00:05+08:00] B: Selamat pagi`.")
+        files = st.file_uploader("Meeting files", type=["json", "txt"], accept_multiple_files=True,
+                                 key="uploaded_files")
+        if files and st.button("Translate file(s)", type="primary", key="translate_files"):
+            seen = set()
+            for uploaded in files:
+                try:
+                    content = uploaded.getvalue().decode("utf-8-sig")
+                except UnicodeDecodeError:
+                    ui_message("error", "%s is not a UTF-8 text file." % uploaded.name)
+                    continue
+                found, errors = parse_meeting_content(uploaded.name, content, setup)
+                for message in errors:
+                    ui_message("warning", message)
+                for record in found:
+                    if record["id"] not in seen:
+                        seen.add(record["id"])
+                        submitted.append(record)
+
+    with tab_html:
+        st.write("Use your browser's own speech recognition (Chrome or Edge). Choose the speaker, add sentences "
+                 "to the list, download the file, then upload it in the **Upload meeting file** tab.")
+        try:
+            with open(RECORDER_PATH, "r", encoding="utf-8") as handle:
+                page = handle.read()
+            import streamlit.components.v1 as components
+            components.html(page, height=900, scrolling=True)
+        except OSError as error:
+            ui_message("error", "Could not load the recorder page: %s" % error)
+
+    if pending:
+        record, problem = make_utterance(setup, speaker, pending["text"], pending["timestamp"], pending["kind"])
+        if problem:
+            ui_message("error", "Nothing to translate (%s). Type or record a sentence first." % problem)
+        else:
+            submitted.append(record)
+    return submitted
+
+
+def ui_run_summary(counts):
+    parts = "%(processed)d translated, %(skipped)d already done, %(failed)d failed" % counts
+    if counts["failed"]:
+        ui_message("warning", parts + ". Failed sentences were not saved; check your API key and try again.")
+    elif counts["processed"]:
+        ui_message("success", parts + ".")
+    else:
+        ui_message("info", parts + ".")
+
+
+def ui_sentence(record, tz_name, show_meeting=False):
+    """One sentence: time, speaker, what was said and the translation."""
+    st = _st()
+    header = "`%s` **%s** (%s) %s" % (format_clock(record.get("timestamp"), tz_name),
+                                      escape_markdown(record.get("speaker_name", "?")),
+                                      escape_markdown(record.get("speaker_language", "?")),
+                                      OUTCOME_ICONS.get(record.get("outcome"), ""))
+    if show_meeting:
+        header += " \u00B7 _%s_" % escape_markdown(record.get("meeting", "?"))
+    st.markdown("%s  \n%s  \n\u21B3 %s" % (header, escape_markdown(record.get("transcript", "")),
+                                          escape_markdown(record.get("translation", ""))))
+    detail = "Tone: %s (%.0f%%), intensity %s/5" % (record.get("tone", "?"), record.get("tone_confidence", 0) * 100,
+                                                    record.get("intensity", "?"))
+    if "score" in record:
+        detail += ", attention score %s/100" % record["score"]
+    if record.get("outcome") not in (None, "ACCEPT") and record.get("reasons"):
+        detail += " \u00B7 " + "; ".join(record["reasons"])
+    st.caption(detail)
+
+
+def ui_conversation_panel(latest, previous, tz_name, context_count):
+    """The newest translation, big, then the sentences before it, each with a timestamp."""
+    st = _st()
+    st.subheader("Latest translation")
+    if latest is None:
+        st.info("Nothing has been said in this meeting yet. Pick who is speaking, then record or type a sentence.")
+        return
+    with st.container(border=True):
+        st.caption("%s  |  %s" % (format_clock(latest.get("timestamp"), tz_name), direction_text(latest).replace("->", "\u2192")))
+        st.markdown("**Said:** " + escape_markdown(latest.get("transcript", "")))
+        st.markdown("### " + escape_markdown(latest.get("translation", "")))
+        st.caption("Tone: %s (%.0f%%), intensity %s/5 \u00B7 %s" % (
+            latest.get("tone", "?"), latest.get("tone_confidence", 0) * 100, latest.get("intensity", "?"),
+            latest.get("tone_reason", "")))
+        reasons = "; ".join(latest.get("reasons", []))
+        outcome = latest.get("outcome")
+        if outcome == "TENSION":
+            ui_message("warning", "Tense moment: %s. Consider slowing down and confirming that both sides understand." % reasons)
+        elif outcome == "CHECK":
+            ui_message("info", "Please confirm this translation with the speaker: %s." % reasons)
+        elif outcome == "REJECT":
+            ui_message("error", "This sentence could not be translated: %s." % reasons)
+
+    st.subheader("Previous %d sentences" % context_count)
+    if not previous:
+        st.caption("No earlier sentences yet.")
+    for record in previous:
+        ui_sentence(record, tz_name)
+
+
+def ui_meeting_picker(meetings, current):
+    """Choose which meeting the Transcript tab shows (defaults to the current one)."""
+    options = list(meetings)
+    if current not in options:
+        options = [current] + options
+    chosen = _st().selectbox("Meeting", options, index=options.index(current), key="transcript_meeting_" + current)
+    return chosen if chosen in options else current
+
+
+def ui_overview(records):
+    st = _st()
+    if not records:
+        st.info("No sentences yet.")
+        return
+    outcome_counts = count_by(records, "outcome")
+    columns = st.columns(5)
+    columns[0].metric("Sentences", len(records))
+    for column, name in zip(columns[1:], OUTCOME_ORDER):
+        column.metric("%s %s" % (OUTCOME_ICONS[name], name.title()), outcome_counts.get(name, 0))
+
+    tone_counts = count_by(records, "tone")
+    language_counts = count_by(records, "detected_language")
+    import pandas as pd
+    left, right = st.columns(2)
+    left.caption("Sentences by tone")
+    left.bar_chart(pd.Series({t: tone_counts[t] for t in TONE_ORDER if t in tone_counts}))
+    right.caption("Sentences by language spoken")
+    right.bar_chart(pd.Series(language_counts))
+
+
+def ui_transcript(records, tz_name, show_meeting=False):
+    st = _st()
+    if not records:
+        st.write("No sentences to show.")
+        return
+    for record in records:
+        ui_sentence(record, tz_name, show_meeting)
+
+
+def ui_downloads(records, tz_name=None, key_prefix="all", file_stem="meeting"):
+    """Download buttons. key_prefix keeps widget ids unique when shown in more than one tab."""
+    st = _st()
+    if not records:
+        return
+    columns = st.columns([1, 1, 1, 3])
+    columns[0].download_button("Download minutes (.txt)", records_to_text(records, tz_name),
+                               file_name=file_stem + ".txt", mime="text/plain", key=key_prefix + "_txt")
+    columns[1].download_button("Download JSON", json.dumps(records, ensure_ascii=False, indent=2),
+                               file_name=file_stem + ".json", mime="application/json", key=key_prefix + "_json")
+    columns[2].download_button("Download CSV", records_to_csv(records),
+                               file_name=file_stem + ".csv", mime="text/csv", key=key_prefix + "_csv")
+
+
+def ui_filter_tab(records):
+    """Controls for the Filter tab. Returns keyword arguments for
+    data_manager.filter_records_multi."""
+    st = _st()
+    st.write("Pick tones and/or languages (and/or a speaker). Leave a box empty to ignore it.")
+    speakers = sorted({r.get("speaker_name") for r in records if r.get("speaker_name")})
+    meetings = sorted({r.get("meeting") for r in records if r.get("meeting")})
+    first, second, third, fourth = st.columns(4)
+    tones = first.multiselect("Tone", TONE_ORDER, key="filter_tones")
+    languages = second.multiselect("Language spoken", DETECTED_LANGUAGES, key="filter_languages")
+    targets = third.multiselect("Translated into", LANGUAGES, key="filter_targets")
+    names = fourth.multiselect("Speaker", speakers, key="filter_speakers")
+    match_label = st.radio(
+        "When more than one box is filled in, show sentences that match",
+        ["All of them (AND)", "Any of them (OR)"], horizontal=True, key="filter_match",
+    )
+    with st.expander("More filters"):
+        meeting = st.selectbox("Meeting", ["All meetings"] + meetings, key="filter_meeting")
+        outcome = st.selectbox("Flag", ["All"] + OUTCOME_ORDER, key="filter_outcome")
+    return {
+        "tones": list(tones),
+        "languages": list(languages),
+        "target_languages": list(targets),
+        "speakers": list(names),
+        "match": "any" if match_label == "Any of them (OR)" else "all",
+        "outcome": outcome if outcome in OUTCOME_ORDER else None,
+        "meeting": meeting if meeting in meetings else None,
+    }
+
+
+def ui_filter_results(matched, total, tz_name):
+    st = _st()
+    st.metric("Matching sentences", "%d of %d" % (len(matched), total))
+    ui_transcript(matched, tz_name, show_meeting=True)
+    ui_downloads(matched, tz_name, key_prefix="filtered", file_stem="filtered_sentences")
+
+
+def ui_subheader(text):
+    _st().subheader(text)
+
