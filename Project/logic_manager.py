@@ -20,7 +20,7 @@ Outcomes:
   REJECT  - unusable (empty translation or unsupported language)
 """
 
-CONTEXT_SENTENCES = 3 
+CONTEXT_SENTENCES = 3  # how many previous sentences are shown and given to the AI as context
 
 OUTCOME_TENSION = "TENSION"
 OUTCOME_CHECK = "CHECK"
@@ -38,14 +38,19 @@ TONE_WEIGHT = {
     "sad": 10, "neutral": 0, "happy": 0, "grateful": 0,
 }
 
+
 def evaluate(record):
     """Apply the business rules. Returns {"reject": [...], "check": [...], "tension": [...]},
     each a list of human-readable reasons (an empty list means that rule did not fire)."""
     findings = {"reject": [], "check": [], "tension": []}
+
+    # Rule 1 - REJECT: unusable output.
     if not record["translation"].strip():
         findings["reject"].append("empty translation")
     if record["detected_language"] == "Other":
         findings["reject"].append("language is not English, Indonesian or Chinese")
+
+    # Rule 2 - CHECK: things that make the translation less trustworthy.
     if record["language_confidence"] < MIN_LANGUAGE_CONFIDENCE:
         findings["check"].append("low language confidence (%.2f)" % record["language_confidence"])
     if record["translation_confidence"] < MIN_TRANSLATION_CONFIDENCE:
@@ -55,6 +60,8 @@ def evaluate(record):
         findings["check"].append("%s is set to %s but the AI heard %s"
                                  % (record.get("speaker_name", "the speaker"), expected,
                                     record["detected_language"]))
+
+    # Rule 3 - TENSION: multi-condition rule on three AI output fields.
     if (
         record["tone"] in TENSION_TONES
         and record["intensity"] >= TENSION_MIN_INTENSITY
@@ -64,6 +71,13 @@ def evaluate(record):
                                    % (record["tone"], record["tone_confidence"], record["intensity"]))
     return findings
 
+
+def score(record):
+    """Attention score from 0 to 100: intensity (10-50) plus a weight for the tone, capped at 100."""
+    points = record["intensity"] * 10 + TONE_WEIGHT.get(record["tone"], 0)
+    return max(0, min(100, points))
+
+
 def route(record):
     """Decide the outcome. Returns {"outcome": ..., "score": ..., "reasons": [...]}."""
     findings = evaluate(record)
@@ -71,13 +85,8 @@ def route(record):
     if findings["reject"]:
         return {"outcome": OUTCOME_REJECT, "score": 0, "reasons": findings["reject"]}
     points = score(record)
-    if findings["tension"]:
+    if findings["tension"]:  # tension wins, but still reports any translation doubts
         return {"outcome": OUTCOME_TENSION, "score": points, "reasons": findings["tension"] + findings["check"]}
     if findings["check"]:
         return {"outcome": OUTCOME_CHECK, "score": points, "reasons": findings["check"]}
     return {"outcome": OUTCOME_ACCEPT, "score": points, "reasons": ["clear and routine"]}
-
-def score(record):
-    """Attention score from 0 to 100: intensity (10-50) plus a weight for the tone, capped at 100."""
-    points = record["intensity"] * 10 + TONE_WEIGHT.get(record["tone"], 0)
-    return max(0, min(100, points))
