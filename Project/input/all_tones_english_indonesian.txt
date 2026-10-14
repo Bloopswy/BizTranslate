@@ -1,0 +1,18 @@
+[2026-10-14T10:00:05+08:00] A: Good morning, everyone. Today we'll go through the delivery schedule, the payment terms and the order for next quarter.
+[2026-10-14T10:00:23+08:00] B: Selamat pagi. Baik, kita mulai dari jadwal pengiriman, lalu kita bahas syarat pembayaran dan jumlah pesanan.
+[2026-10-14T10:00:46+08:00] A: I'm delighted to say that the last shipment arrived early and the quality was perfect. My whole team is thrilled!
+[2026-10-14T10:01:15+08:00] B: Wah, senang sekali mendengarnya! Kami sangat bahagia dan bangga bisa bekerja sama dengan Anda.
+[2026-10-14T10:01:40+08:00] B: Terima kasih banyak atas kepercayaan Anda dan pembayaran yang selalu tepat waktu. Kami sangat menghargai dukungan Anda.
+[2026-10-14T10:02:06+08:00] A: Thank you so much for your support during the holiday rush. We truly appreciate everything your team did for us.
+[2026-10-14T10:02:35+08:00] A: Honestly, I'm really frustrated. We've asked about the missing export documents three times, and every time we get the same vague answer.
+[2026-10-14T10:03:06+08:00] B: Kami juga sangat frustrasi. Dokumen itu sudah kami kirim dua kali, tetapi tim Anda terus bilang belum menerimanya. Kami benar-benar lelah dengan situasi ini!
+[2026-10-14T10:03:30+08:00] A: This is completely unacceptable! You promised delivery last Monday and nothing has arrived. If this happens again, I will cancel the entire contract!
+[2026-10-14T10:03:56+08:00] B: Jangan salahkan kami! Anda sendiri yang terlambat membayar, dan sekarang Anda mengancam kami? Ini sangat tidak adil dan saya marah sekali!
+[2026-10-14T10:04:27+08:00] A: I'm extremely worried. If the shipment doesn't clear customs by tomorrow, we'll lose the whole order, and I can't stop thinking about it.
+[2026-10-14T10:04:55+08:00] B: Saya sangat khawatir dan cemas. Kalau pembayaran tidak masuk besok, pabrik kami tidak bisa membeli bahan baku dan harus menghentikan produksi.
+[2026-10-14T10:05:23+08:00] A: I'm sorry to share this, but we have to close our Surabaya warehouse. It breaks my heart to let those people go after so many years.
+[2026-10-14T10:05:54+08:00] B: Saya sedih sekali mendengarnya. Kami sudah bekerja sama dengan gudang itu bertahun-tahun, dan rasanya sangat berat melihatnya tutup.
+[2026-10-14T10:06:20+08:00] A: We need your answer right now! The ship leaves port in two hours, so please confirm the quantity immediately. Every minute counts!
+[2026-10-14T10:06:41+08:00] B: Mohon segera konfirmasi hari ini juga! Batas waktu dokumen ekspor adalah jam lima sore, jadi kami butuh tanda tangan Anda secepatnya!
+[2026-10-14T10:07:09+08:00] B: Agak mengecewakan bahwa jadwalnya berubah lagi, tetapi saya rasa kita masih bisa mengaturnya dengan baik.
+[2026-10-14T10:07:35+08:00] A: I'm a little nervous about the new customs rules, but I'm sure we can handle them together.
