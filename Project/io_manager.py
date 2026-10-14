@@ -224,3 +224,29 @@ def default_setup():
             "B": {"name": "Party B", "language": "Indonesian"},
         },
     }
+
+
+def clean_label(text, fallback, limit):
+    """A short single-line label (names are put into prompts, so keep them tidy)."""
+    if not isinstance(text, str):
+        return fallback
+    cleaned = " ".join(text.split())
+    cleaned = "".join(ch for ch in cleaned if ch.isprintable())[:limit].strip()
+    return cleaned or fallback
+
+
+def normalise_setup(raw, fallback=None):
+    """Validate a meeting setup. Bad or missing values fall back to `fallback` (or the defaults)."""
+    base = fallback if fallback is not None else default_setup()
+    raw = raw if isinstance(raw, dict) else {}
+    parties_raw = raw.get("parties") if isinstance(raw.get("parties"), dict) else {}
+    parties = {}
+    for party_id in PARTY_IDS:
+        party_raw = parties_raw.get(party_id) if isinstance(parties_raw.get(party_id), dict) else {}
+        base_party = base["parties"][party_id]
+        language = party_raw.get("language")
+        parties[party_id] = {
+            "name": clean_label(party_raw.get("name"), base_party["name"], MAX_NAME_CHARS),
+            "language": language if language in LANGUAGES else base_party["language"],
+        }
+    return {"meeting": clean_label(raw.get("meeting"), base["meeting"], MAX_MEETING_CHARS), "parties": parties}
