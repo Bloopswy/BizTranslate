@@ -250,3 +250,13 @@ def normalise_setup(raw, fallback=None):
             "language": language if language in LANGUAGES else base_party["language"],
         }
     return {"meeting": clean_label(raw.get("meeting"), base["meeting"], MAX_MEETING_CHARS), "parties": parties}
+
+
+def other_party(party_id):
+    """The listener: 'B' when A speaks, 'A' when B speaks."""
+    return "B" if party_id == "A" else "A"
+
+
+def now_iso():
+    """The current time in UTC as ISO 8601 text, to the second."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
