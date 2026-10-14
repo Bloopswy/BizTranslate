@@ -112,3 +112,81 @@ def run_batch(records, api_key, setup, tz_name=None, name_meeting_after_file=Tru
         show_meeting_panel(records, meeting, tz_name)
     io_manager.show_summary(records)
     return records
+
+def run_interactive(records, api_key, setup, tz_name=None):
+    while True:
+        choice = io_manager.prompt_menu(setup, logic_manager.CONTEXT_SENTENCES)
+        if choice is None or choice == "8":
+            io_manager.show_message("Goodbye.")
+            return records
+        if choice == "1":
+            speaker = io_manager.prompt_speaker(setup)
+            text = io_manager.prompt_sentence() if speaker else None
+            if text:
+                raw_record, problem = io_manager.make_utterance(setup, speaker, text)
+                if problem:
+                    io_manager.show_error(problem)
+                else:
+                    records = process_records([raw_record], records, api_key, tz_name)
+                    show_meeting_panel(records, setup["meeting"], tz_name)
+        elif choice == "2":
+            chosen = io_manager.prompt_file_choice(io_manager.list_input_files())
+            if chosen:
+                raw_records = load_raw_records_from_files(chosen, setup)
+                records = process_records(raw_records, records, api_key, tz_name)
+        elif choice == "3":
+            show_meeting_panel(records, setup["meeting"], tz_name)
+        elif choice == "4":
+            io_manager.show_transcript(data_manager.meeting_records(records, setup["meeting"]), tz_name)
+        elif choice == "5":
+            criteria = io_manager.prompt_filter(setup)
+            if criteria is not None:
+                io_manager.show_transcript(data_manager.filter_records_multi(records, **criteria), tz_name)
+        elif choice == "6":
+            io_manager.show_summary(records)
+        elif choice == "7":
+            new_setup = io_manager.prompt_setup(setup)
+            if new_setup is not None:
+                setup = new_setup
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Meeting translator for two parties (English / Indonesian / Chinese)")
+    parser.add_argument("--batch", action="store_true", help="translate the meeting files in the input folder and exit")
+    parser.add_argument("--meeting", help="meeting name (default: today's date, or the file name in --batch)")
+    parser.add_argument("--a-name", help="name of party A")
+    parser.add_argument("--a-language", choices=io_manager.LANGUAGES, help="language of party A (default English)")
+    parser.add_argument("--b-name", help="name of party B")
+    parser.add_argument("--b-language", choices=io_manager.LANGUAGES, help="language of party B (default Indonesian)")
+    args = parser.parse_args()
+
+    io_manager.load_env_file()
+    setup_logging()
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        io_manager.show_error(
+            "GEMINI_API_KEY is not set. Either create a file named .env in this folder containing\n"
+            "  GEMINI_API_KEY=your-key\n"
+            "or set it in your terminal first (macOS/Linux: export GEMINI_API_KEY=your-key, "
+            "Windows PowerShell: $env:GEMINI_API_KEY=\"your-key\")."
+        )
+        return 1
+
+    setup = io_manager.normalise_setup({
+        "meeting": args.meeting,
+        "parties": {"A": {"name": args.a_name, "language": args.a_language},
+                    "B": {"name": args.b_name, "language": args.b_language}},
+    })
+    records = data_manager.load_records()
+    io_manager.show_message("Loaded %d saved sentence(s). Model: %s" % (len(records), ai_manager.get_model_name()))
+
+    if args.batch:
+        # an explicit --meeting name applies to every file; otherwise each file is its own meeting
+        run_batch(records, api_key, setup, name_meeting_after_file=not args.meeting)
+    else:
+        run_interactive(records, api_key, setup)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
