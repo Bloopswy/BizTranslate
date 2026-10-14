@@ -48,6 +48,8 @@ def load_records(path=DEFAULT_DATA_PATH):
             logging.error("Could not move corrupt file: %s", move_error)
         return []
 
+# FOR MEETINGS
+
 def list_meetings(records):
     return sorted({str(r.get("meeting", "")) for r in records if r.get("meeting")})
 
@@ -59,6 +61,14 @@ def next_sequence(records, meeting):
     """Position the next sentence will take in this meeting (1, 2, 3, ...)."""
     numbers = [_seq(r) for r in records if r.get("meeting") == meeting]
     return max(numbers) + 1 if numbers else 1
+
+def latest_with_context(records, meeting, context_count):
+    """Returns (latest sentence or None, the `context_count` sentences before it)."""
+    rows = meeting_records(records, meeting)
+    if not rows:
+        return None, []
+    earlier = rows[:-1]
+    return rows[-1], (earlier[-context_count:] if context_count > 0 else [])
 
 def last_sentences(records, meeting, count):
     """The last `count` sentences of the meeting, oldest first."""
