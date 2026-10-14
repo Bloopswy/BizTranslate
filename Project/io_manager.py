@@ -417,3 +417,30 @@ def format_conversation(latest, previous, tz_name=None):
              "\n--- Previous %d sentences ---" % len(previous) if previous else "\n(no earlier sentences)"]
     lines.extend(format_short_sentence(record, tz_name) for record in previous)
     return "\n".join(lines)
+
+
+def count_by(records, key):
+    """{value: how many records have it} for one field, e.g. count_by(records, "tone")."""
+    counts = {}
+    for record in records:
+        value = record.get(key, "?")
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def format_transcript(records, tz_name=None):
+    if not records:
+        return "No sentences."
+    return "\n".join(format_short_sentence(record, tz_name) for record in records)
+
+
+def format_summary(records):
+    if not records:
+        return "No records yet."
+    lines = ["Total sentences: %d" % len(records)]
+    for title, key in (("By outcome", "outcome"), ("By speaker", "speaker_name"),
+                       ("By language spoken", "detected_language"), ("By tone", "tone")):
+        counts = count_by(records, key)
+        parts = ", ".join("%s=%d" % (name, counts[name]) for name in sorted(counts))
+        lines.append("%s: %s" % (title, parts))
+    return "\n".join(lines)
