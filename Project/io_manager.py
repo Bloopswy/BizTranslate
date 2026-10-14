@@ -298,3 +298,55 @@ def make_utterance(setup, speaker, transcript, timestamp=None, input_type="text"
         "transcript": text,
         "input_type": input_type,
     }, None
+
+
+# ---------- reading meeting files ----------
+
+# "A: text", "b: text" or "[2026-10-14T09:00:05+08:00] B: text" (a full-width colon also works)
+TEXT_LINE = re.compile(r"^\s*(?:\[(?P<time>[^\]]*)\]\s*)?(?P<speaker>[AaBb])\s*[:：]\s*(?P<text>.*\S)\s*$")
+
+
+def parse_meeting_content(name, content, setup):
+    """Parse a meeting file. Returns (records, errors). Never raises.
+
+    .json  an object {"meeting": ..., "parties": {"A": {"name", "language"}, "B": {...}},
+           "utterances": [{"speaker": "A", "timestamp": "...", "transcript": "..."}]}
+           or just the list of utterances (then `setup` supplies the parties).
+    .txt   one sentence per line:  A: text   or   [2026-10-14T09:00:05+08:00] B: text
+    """
+    records, errors = [], []
+    short_name = os.path.basename(name)
+    items = []  # (position, speaker, timestamp, transcript)
+
+    if name.lower().endswith(".json"):
+        try:
+            data = json.loads(content)
+        except ValueError as error:
+            return [], ["%s is not valid JSON: %s" % (short_name, error)]
+        if isinstance(data, dict):
+            setup = normalise_setup(data, setup)
+            data = data.get("utterances")
+        if not isinstance(data, list):
+            return [], ["%s must contain a list of utterances (or an object with an 'utterances' list)" % short_name]
+        for position, item in enumerate(data, start=1):
+            if isinstance(item, dict):
+                items.append((position, item.get("speaker"), item.get("timestamp", ""), item.get("transcript")))
+            else:
+                errors.append("%s item %d skipped: not an object" % (short_name, position))
+    else:
+        for position, line in enumerate(content.splitlines(), start=1):
+            if not line.strip():
+                continue
+            match = TEXT_LINE.match(line)
+            if match is None:
+                errors.append("%s line %d skipped: expected 'A: text' or 'B: text'" % (short_name, position))
+            else:
+                items.append((position, match.group("speaker"), match.group("time") or "", match.group("text")))
+
+    for position, speaker, timestamp, transcript in items:
+        record, problem = make_utterance(setup, speaker, transcript, timestamp or "", "file", position)
+        if problem:
+            errors.append("%s item %d skipped: %s" % (short_name, position, problem))
+        else:
+            records.append(record)
+    return records, errors
