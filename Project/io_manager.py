@@ -378,3 +378,32 @@ def format_clock(timestamp, tz_name=None, with_date=False):
     except (KeyError, ValueError, OSError):
         moment = moment.astimezone(timezone.utc)
     return moment.strftime("%Y-%m-%d %H:%M:%S" if with_date else "%H:%M:%S")
+
+
+# ---------- formatting (terminal) ----------
+
+def direction_text(record):
+    """'Acme (English) -> Mitra (Indonesian)': who is speaking to whom, in which languages."""
+    return "%s (%s) -> %s (%s)" % (record.get("speaker_name", "?"), record.get("speaker_language", "?"),
+                                    record.get("listener_name", "?"), record.get("target_language", "?"))
+
+
+def format_sentence(record, tz_name=None):
+    """Detailed multi-line view of one sentence."""
+    lines = [
+        "[%s] %s  [%s]" % (format_clock(record.get("timestamp"), tz_name), direction_text(record),
+                           record.get("outcome", "?")),
+        "    Said       : %s" % record.get("transcript", ""),
+        "    Translated : %s" % record.get("translation", ""),
+        "    Tone       : %s (confidence %.2f), intensity %s/5" % (
+            record.get("tone", "?"), record.get("tone_confidence", 0), record.get("intensity", "?")),
+        "    Note       : %s" % "; ".join(record.get("reasons", [])),
+    ]
+    return "\n".join(lines)
+
+
+def format_short_sentence(record, tz_name=None):
+    """Compact two-line view used for the 'previous sentences' list."""
+    return "[%s] %s (%s): %s\n           -> %s" % (
+        format_clock(record.get("timestamp"), tz_name), record.get("speaker_name", "?"),
+        record.get("speaker_language", "?"), record.get("transcript", ""), record.get("translation", ""))
