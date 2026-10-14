@@ -207,3 +207,304 @@ def format_menu(setup, context_count):
 def prompt_menu(setup, context_count=3):
     show_message(format_menu(setup, context_count))
     return prompt_choice("Choose 1-8: ", [str(n) for n in range(1, 9)])
+
+
+# ---------- meeting setup and sentence records ----------
+
+def default_meeting_name():
+    return "meeting-" + datetime.now().strftime("%Y-%m-%d")
+
+
+def default_setup():
+    """A fresh two-party meeting: Party A speaks English, Party B speaks Indonesian."""
+    return {
+        "meeting": default_meeting_name(),
+        "parties": {
+            "A": {"name": "Party A", "language": "English"},
+            "B": {"name": "Party B", "language": "Indonesian"},
+        },
+    }
+
+
+def clean_label(text, fallback, limit):
+    """A short single-line label (names are put into prompts, so keep them tidy)."""
+    if not isinstance(text, str):
+        return fallback
+    cleaned = " ".join(text.split())
+    cleaned = "".join(ch for ch in cleaned if ch.isprintable())[:limit].strip()
+    return cleaned or fallback
+
+
+def normalise_setup(raw, fallback=None):
+    """Validate a meeting setup. Bad or missing values fall back to `fallback` (or the defaults)."""
+    base = fallback if fallback is not None else default_setup()
+    raw = raw if isinstance(raw, dict) else {}
+    parties_raw = raw.get("parties") if isinstance(raw.get("parties"), dict) else {}
+    parties = {}
+    for party_id in PARTY_IDS:
+        party_raw = parties_raw.get(party_id) if isinstance(parties_raw.get(party_id), dict) else {}
+        base_party = base["parties"][party_id]
+        language = party_raw.get("language")
+        parties[party_id] = {
+            "name": clean_label(party_raw.get("name"), base_party["name"], MAX_NAME_CHARS),
+            "language": language if language in LANGUAGES else base_party["language"],
+        }
+    return {"meeting": clean_label(raw.get("meeting"), base["meeting"], MAX_MEETING_CHARS), "parties": parties}
+
+
+def other_party(party_id):
+    """The listener: 'B' when A speaks, 'A' when B speaks."""
+    return "B" if party_id == "A" else "A"
+
+
+def now_iso():
+    """The current time in UTC as ISO 8601 text, to the second."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def make_utterance_id(meeting, timestamp, position, speaker, transcript):
+    """Same sentence in the same meeting always gets the same id, so re-reading a file
+    never duplicates it. `position` (a line number) tells apart repeated sentences."""
+    key = "|".join([meeting, timestamp, str(position), speaker, transcript])
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+
+
+def make_utterance(setup, speaker, transcript, timestamp=None, input_type="text", position=""):
+    """Build one raw sentence record. Returns (record, None) or (None, error_message).
+
+    timestamp=None means "now" (live input). An unreadable timestamp is stored as ''.
+    The sentence is translated towards the other party, so the listener's language
+    becomes the target language.
+    """
+    speaker = speaker.strip().upper() if isinstance(speaker, str) else ""
+    if speaker not in PARTY_IDS:
+        return None, "speaker must be A or B"
+    if not isinstance(transcript, str) or not transcript.strip():
+        return None, "missing or empty sentence"
+    text = transcript.strip()
+    if len(text) > MAX_SENTENCE_CHARS:
+        return None, "sentence longer than %d characters" % MAX_SENTENCE_CHARS
+    when = now_iso() if timestamp is None else valid_timestamp(timestamp)
+    me, listener = setup["parties"][speaker], setup["parties"][other_party(speaker)]
+    return {
+        "id": make_utterance_id(setup["meeting"], when, position, speaker, text),
+        "meeting": setup["meeting"],
+        "timestamp": when,
+        "speaker": speaker,
+        "speaker_name": me["name"],
+        "speaker_language": me["language"],
+        "listener_name": listener["name"],
+        "target_language": listener["language"],
+        "transcript": text,
+        "input_type": input_type,
+    }, None
+
+
+# ---------- reading meeting files ----------
+
+# "A: text", "b: text" or "[2026-10-14T09:00:05+08:00] B: text" (a full-width colon also works)
+TEXT_LINE = re.compile(r"^\s*(?:\[(?P<time>[^\]]*)\]\s*)?(?P<speaker>[AaBb])\s*[:：]\s*(?P<text>.*\S)\s*$")
+
+
+def parse_meeting_content(name, content, setup):
+    """Parse a meeting file. Returns (records, errors). Never raises.
+
+    .json  an object {"meeting": ..., "parties": {"A": {"name", "language"}, "B": {...}},
+           "utterances": [{"speaker": "A", "timestamp": "...", "transcript": "..."}]}
+           or just the list of utterances (then `setup` supplies the parties).
+    .txt   one sentence per line:  A: text   or   [2026-10-14T09:00:05+08:00] B: text
+    """
+    records, errors = [], []
+    short_name = os.path.basename(name)
+    items = []  # (position, speaker, timestamp, transcript)
+
+    if name.lower().endswith(".json"):
+        try:
+            data = json.loads(content)
+        except ValueError as error:
+            return [], ["%s is not valid JSON: %s" % (short_name, error)]
+        if isinstance(data, dict):
+            setup = normalise_setup(data, setup)
+            data = data.get("utterances")
+        if not isinstance(data, list):
+            return [], ["%s must contain a list of utterances (or an object with an 'utterances' list)" % short_name]
+        for position, item in enumerate(data, start=1):
+            if isinstance(item, dict):
+                items.append((position, item.get("speaker"), item.get("timestamp", ""), item.get("transcript")))
+            else:
+                errors.append("%s item %d skipped: not an object" % (short_name, position))
+    else:
+        for position, line in enumerate(content.splitlines(), start=1):
+            if not line.strip():
+                continue
+            match = TEXT_LINE.match(line)
+            if match is None:
+                errors.append("%s line %d skipped: expected 'A: text' or 'B: text'" % (short_name, position))
+            else:
+                items.append((position, match.group("speaker"), match.group("time") or "", match.group("text")))
+
+    for position, speaker, timestamp, transcript in items:
+        record, problem = make_utterance(setup, speaker, transcript, timestamp or "", "file", position)
+        if problem:
+            errors.append("%s item %d skipped: %s" % (short_name, position, problem))
+        else:
+            records.append(record)
+    return records, errors
+
+
+def read_meeting_file(path, setup):
+    """Read a meeting file from disk. Returns (records, errors). Never raises."""
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            content = handle.read()
+    except (OSError, UnicodeDecodeError) as error:
+        return [], ["cannot read %s: %s" % (path, error)]
+    return parse_meeting_content(path, content, setup)
+
+
+# ---------- time ----------
+
+def format_clock(timestamp, tz_name=None, with_date=False):
+    """'14:32:05' (or with the date) in the given IANA time zone; the computer's own zone
+    if tz_name is None. Naive times are taken as UTC. Unreadable times show '--:--:--'."""
+    try:
+        moment = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError):
+        return "--:--:--"
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    try:
+        moment = moment.astimezone(ZoneInfo(tz_name)) if tz_name else moment.astimezone()
+    except (KeyError, ValueError, OSError):
+        moment = moment.astimezone(timezone.utc)
+    return moment.strftime("%Y-%m-%d %H:%M:%S" if with_date else "%H:%M:%S")
+
+
+# ---------- formatting (terminal) ----------
+
+def direction_text(record):
+    """'Acme (English) -> Mitra (Indonesian)': who is speaking to whom, in which languages."""
+    return "%s (%s) -> %s (%s)" % (record.get("speaker_name", "?"), record.get("speaker_language", "?"),
+                                    record.get("listener_name", "?"), record.get("target_language", "?"))
+
+
+def format_sentence(record, tz_name=None):
+    """Detailed multi-line view of one sentence."""
+    lines = [
+        "[%s] %s  [%s]" % (format_clock(record.get("timestamp"), tz_name), direction_text(record),
+                           record.get("outcome", "?")),
+        "    Said       : %s" % record.get("transcript", ""),
+        "    Translated : %s" % record.get("translation", ""),
+        "    Tone       : %s (confidence %.2f), intensity %s/5" % (
+            record.get("tone", "?"), record.get("tone_confidence", 0), record.get("intensity", "?")),
+        "    Note       : %s" % "; ".join(record.get("reasons", [])),
+    ]
+    return "\n".join(lines)
+
+
+def format_short_sentence(record, tz_name=None):
+    """Compact two-line view used for the 'previous sentences' list."""
+    return "[%s] %s (%s): %s\n           -> %s" % (
+        format_clock(record.get("timestamp"), tz_name), record.get("speaker_name", "?"),
+        record.get("speaker_language", "?"), record.get("transcript", ""), record.get("translation", ""))
+
+
+def format_conversation(latest, previous, tz_name=None):
+    """The latest sentence in full, then the previous sentences in short form."""
+    if latest is None:
+        return "Nothing has been said in this meeting yet."
+    lines = ["--- Latest translation ---", format_sentence(latest, tz_name),
+             "\n--- Previous %d sentences ---" % len(previous) if previous else "\n(no earlier sentences)"]
+    lines.extend(format_short_sentence(record, tz_name) for record in previous)
+    return "\n".join(lines)
+
+
+def count_by(records, key):
+    """{value: how many records have it} for one field, e.g. count_by(records, "tone")."""
+    counts = {}
+    for record in records:
+        value = record.get(key, "?")
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def format_transcript(records, tz_name=None):
+    if not records:
+        return "No sentences."
+    return "\n".join(format_short_sentence(record, tz_name) for record in records)
+
+
+def format_summary(records):
+    if not records:
+        return "No records yet."
+    lines = ["Total sentences: %d" % len(records)]
+    for title, key in (("By outcome", "outcome"), ("By speaker", "speaker_name"),
+                       ("By language spoken", "detected_language"), ("By tone", "tone")):
+        counts = count_by(records, key)
+        parts = ", ".join("%s=%d" % (name, counts[name]) for name in sorted(counts))
+        lines.append("%s: %s" % (title, parts))
+    return "\n".join(lines)
+
+
+# ---------- basic output (the only print() calls in the project) ----------
+
+def show_message(text):
+    print(text)
+
+
+def show_error(text):
+    print("Error: " + text)
+
+
+def show_conversation(latest, previous, tz_name=None):
+    show_message(format_conversation(latest, previous, tz_name))
+
+
+def show_sentence(record, tz_name=None):
+    show_message(format_sentence(record, tz_name))
+
+
+def show_transcript(records, tz_name=None):
+    show_message(format_transcript(records, tz_name))
+
+
+def show_summary(records):
+    show_message(format_summary(records))
+
+
+# ---------- exports (used by the web app's download buttons) ----------
+
+CSV_COLUMNS = [
+    "meeting", "seq", "timestamp", "speaker_name", "speaker_language", "listener_name", "target_language",
+    "transcript", "translation", "detected_language", "language_confidence", "translation_confidence",
+    "tone", "tone_confidence", "intensity", "tone_reason", "outcome", "reasons", "input_type", "id",
+]
+
+
+def safe_filename(text):
+    """A file-name-friendly version of a meeting name."""
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(text)).strip("._")
+    return cleaned or "meeting"
+
+
+def records_to_csv(records):
+    """CSV text of the records (reasons joined with '; ')."""
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for record in records:
+        row = dict(record)
+        row["reasons"] = "; ".join(record.get("reasons", []))
+        writer.writerow(row)
+    return buffer.getvalue()
+
+
+def records_to_text(records, tz_name=None):
+    """Plain-text meeting minutes: one block per sentence with date and time."""
+    blocks = []
+    for record in records:
+        blocks.append("[%s] %s\n  Said: %s\n  Translation: %s\n  Tone: %s\n  Flag: %s" % (
+            format_clock(record.get("timestamp"), tz_name, with_date=True), direction_text(record),
+            record.get("transcript", ""), record.get("translation", ""), record.get("tone", "?"),
+            record.get("outcome", "?")))
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
