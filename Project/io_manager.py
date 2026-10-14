@@ -267,3 +267,34 @@ def make_utterance_id(meeting, timestamp, position, speaker, transcript):
     never duplicates it. `position` (a line number) tells apart repeated sentences."""
     key = "|".join([meeting, timestamp, str(position), speaker, transcript])
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+
+
+def make_utterance(setup, speaker, transcript, timestamp=None, input_type="text", position=""):
+    """Build one raw sentence record. Returns (record, None) or (None, error_message).
+
+    timestamp=None means "now" (live input). An unreadable timestamp is stored as ''.
+    The sentence is translated towards the other party, so the listener's language
+    becomes the target language.
+    """
+    speaker = speaker.strip().upper() if isinstance(speaker, str) else ""
+    if speaker not in PARTY_IDS:
+        return None, "speaker must be A or B"
+    if not isinstance(transcript, str) or not transcript.strip():
+        return None, "missing or empty sentence"
+    text = transcript.strip()
+    if len(text) > MAX_SENTENCE_CHARS:
+        return None, "sentence longer than %d characters" % MAX_SENTENCE_CHARS
+    when = now_iso() if timestamp is None else valid_timestamp(timestamp)
+    me, listener = setup["parties"][speaker], setup["parties"][other_party(speaker)]
+    return {
+        "id": make_utterance_id(setup["meeting"], when, position, speaker, text),
+        "meeting": setup["meeting"],
+        "timestamp": when,
+        "speaker": speaker,
+        "speaker_name": me["name"],
+        "speaker_language": me["language"],
+        "listener_name": listener["name"],
+        "target_language": listener["language"],
+        "transcript": text,
+        "input_type": input_type,
+    }, None
