@@ -122,3 +122,25 @@ def prompt_language_or_keep(label, current):
     if choice is None:
         return None
     return current if choice == "" else LANGUAGES[int(choice) - 1]
+
+def prompt_filter(setup):
+    """Ask how to filter. Returns keyword arguments for data_manager.filter_records_multi, or None."""
+    show_message("Filter by: 1) tone  2) language spoken  3) translated into  4) speaker  5) outcome")
+    choice = prompt_choice("Filter 1-5: ", ["1", "2", "3", "4", "5"])
+    if choice is None:
+        return None
+    if choice == "1":
+        value = prompt_choice("Tone (%s): " % "/".join(TONE_ORDER), TONE_ORDER)
+        return None if value is None else {"tones": [value]}
+    if choice == "2":
+        value = prompt_choice("Language (%s): " % "/".join(DETECTED_LANGUAGES), DETECTED_LANGUAGES)
+        return None if value is None else {"languages": [value]}
+    if choice == "3":
+        value = prompt_choice("Language (%s): " % "/".join(LANGUAGES), LANGUAGES)
+        return None if value is None else {"target_languages": [value]}
+    if choice == "4":
+        show_message("1) %s   2) %s" % (describe_party(setup, "A"), describe_party(setup, "B")))
+        value = prompt_choice("Speaker 1-2: ", ["1", "2"])
+        return None if value is None else {"speakers": [setup["parties"][PARTY_IDS[int(value) - 1]]["name"]]}
+    value = prompt_choice("Outcome (%s): " % "/".join(OUTCOME_ORDER), OUTCOME_ORDER)
+    return None if value is None else {"outcome": value}
