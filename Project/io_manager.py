@@ -79,3 +79,11 @@ def load_env_file(path=".env"):
             os.environ[key] = value
             loaded += 1
     return loaded
+
+def ask(prompt):
+    """input() wrapper. End-of-input (e.g. no terminal attached) acts like 'quit'."""
+    try:
+        return input(prompt).strip()
+    except EOFError:
+        return None
+
