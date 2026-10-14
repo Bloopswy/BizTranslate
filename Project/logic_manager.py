@@ -20,7 +20,7 @@ Outcomes:
   REJECT  - unusable (empty translation or unsupported language)
 """
 
-CONTEXT_SENTENCES = 3  # how many previous sentences are shown and given to the AI as context
+CONTEXT_SENTENCES = 3 
 
 OUTCOME_TENSION = "TENSION"
 OUTCOME_CHECK = "CHECK"
@@ -46,8 +46,6 @@ def evaluate(record):
         findings["reject"].append("empty translation")
     if record["detected_language"] == "Other":
         findings["reject"].append("language is not English, Indonesian or Chinese")
-
-    # Rule 2 - CHECK: things that make the translation less trustworthy.
     if record["language_confidence"] < MIN_LANGUAGE_CONFIDENCE:
         findings["check"].append("low language confidence (%.2f)" % record["language_confidence"])
     if record["translation_confidence"] < MIN_TRANSLATION_CONFIDENCE:
@@ -73,7 +71,7 @@ def route(record):
     if findings["reject"]:
         return {"outcome": OUTCOME_REJECT, "score": 0, "reasons": findings["reject"]}
     points = score(record)
-    if findings["tension"]:  # tension wins, but still reports any translation doubts
+    if findings["tension"]:
         return {"outcome": OUTCOME_TENSION, "score": points, "reasons": findings["tension"] + findings["check"]}
     if findings["check"]:
         return {"outcome": OUTCOME_CHECK, "score": points, "reasons": findings["check"]}
