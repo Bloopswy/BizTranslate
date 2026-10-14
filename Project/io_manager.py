@@ -144,3 +144,28 @@ def prompt_filter(setup):
         return None if value is None else {"speakers": [setup["parties"][PARTY_IDS[int(value) - 1]]["name"]]}
     value = prompt_choice("Outcome (%s): " % "/".join(OUTCOME_ORDER), OUTCOME_ORDER)
     return None if value is None else {"outcome": value}
+
+def prompt_file_choice(files):
+    """Let the user pick one file (or all). Returns a list of file names, or None."""
+    if not files:
+        show_error("no .json or .txt files found in the '%s' folder" % INPUT_DIR)
+        return None
+    show_message("\nFiles in '%s':" % INPUT_DIR)
+    for number, name in enumerate(files, start=1):
+        show_message("  %d. %s" % (number, name))
+    show_message("  A. all files")
+    valid = [str(n) for n in range(1, len(files) + 1)] + ["A", "a"]
+    choice = prompt_choice("Choose a file: ", valid)
+    if choice is None:
+        return None
+    if choice.lower() == "a":
+        return files
+    return [files[int(choice) - 1]]
+
+def list_input_files(folder=INPUT_DIR):
+    """Names of .json / .txt files in the input folder (sorted)."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    return sorted(n for n in names if n.lower().endswith((".json", ".txt")))
