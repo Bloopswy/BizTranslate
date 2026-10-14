@@ -96,3 +96,16 @@ def prompt_choice(prompt, valid_choices):
         if answer in valid_choices:
             return answer
         show_error("please enter one of: " + ", ".join(c if c else "(just press Enter)" for c in valid_choices))
+
+def prompt_sentence():
+    """Ask for one typed sentence. Returns the text or None if input ended."""
+    while True:
+        text = ask("Sentence: ")
+        if text is None:
+            return None
+        if not text:
+            show_error("the sentence cannot be empty")
+        elif len(text) > MAX_SENTENCE_CHARS:
+            show_error("the sentence is too long (max %d characters)" % MAX_SENTENCE_CHARS)
+        else:
+            return text
