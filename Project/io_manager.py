@@ -444,3 +444,29 @@ def format_summary(records):
         parts = ", ".join("%s=%d" % (name, counts[name]) for name in sorted(counts))
         lines.append("%s: %s" % (title, parts))
     return "\n".join(lines)
+
+
+# ---------- basic output (the only print() calls in the project) ----------
+
+def show_message(text):
+    print(text)
+
+
+def show_error(text):
+    print("Error: " + text)
+
+
+def show_conversation(latest, previous, tz_name=None):
+    show_message(format_conversation(latest, previous, tz_name))
+
+
+def show_sentence(record, tz_name=None):
+    show_message(format_sentence(record, tz_name))
+
+
+def show_transcript(records, tz_name=None):
+    show_message(format_transcript(records, tz_name))
+
+
+def show_summary(records):
+    show_message(format_summary(records))
