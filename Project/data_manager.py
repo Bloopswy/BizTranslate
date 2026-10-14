@@ -54,3 +54,14 @@ def list_meetings(records):
 def meeting_records(records, meeting):
     """All sentences of one meeting, oldest first."""
     return sort_records([r for r in records if r.get("meeting") == meeting])
+
+def next_sequence(records, meeting):
+    """Position the next sentence will take in this meeting (1, 2, 3, ...)."""
+    numbers = [_seq(r) for r in records if r.get("meeting") == meeting]
+    return max(numbers) + 1 if numbers else 1
+
+def last_sentences(records, meeting, count):
+    """The last `count` sentences of the meeting, oldest first."""
+    if count <= 0:
+        return []
+    return meeting_records(records, meeting)[-count:]
