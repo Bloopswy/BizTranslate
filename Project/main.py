@@ -69,3 +69,46 @@ def process_records(raw_records, records, api_key, tz_name=None):
         "\nDone: %(processed)d translated, %(skipped)d already done, %(failed)d failed." % counts
     )
     return records
+def load_raw_records_from_files(file_names, setup, name_meeting_after_file=False):
+    """Read the chosen meeting files. Returns a de-duplicated list of raw sentence records.
+
+    With name_meeting_after_file, a file that does not name its own meeting becomes a
+    meeting called after the file (so batch runs are repeatable).
+    """
+    raw_records, seen = [], set()
+    for name in file_names:
+        file_setup = setup
+        if name_meeting_after_file:
+            stem = io_manager.clean_label(os.path.splitext(name)[0], setup["meeting"], io_manager.MAX_MEETING_CHARS)
+            file_setup = {**setup, "meeting": stem}
+        found, errors = io_manager.read_meeting_file(os.path.join(io_manager.INPUT_DIR, name), file_setup)
+        for message in errors:
+            io_manager.show_error(message)
+        for record in found:
+            if record["id"] not in seen:
+                seen.add(record["id"])
+                raw_records.append(record)
+    return raw_records
+
+
+def show_meeting_panel(records, meeting, tz_name=None):
+    latest, previous = data_manager.latest_with_context(records, meeting, logic_manager.CONTEXT_SENTENCES)
+    io_manager.show_conversation(latest, previous, tz_name)
+
+
+def run_batch(records, api_key, setup, tz_name=None, name_meeting_after_file=True):
+    files = io_manager.list_input_files()
+    if not files:
+        io_manager.show_error("no .json or .txt files found in the '%s' folder" % io_manager.INPUT_DIR)
+        return records
+    raw_records = load_raw_records_from_files(files, setup, name_meeting_after_file)
+    records = process_records(raw_records, records, api_key, tz_name)
+    meetings = []
+    for raw_record in raw_records:
+        if raw_record["meeting"] not in meetings:
+            meetings.append(raw_record["meeting"])
+    for meeting in meetings:
+        io_manager.show_message("\n=== Meeting: %s ===" % meeting)
+        show_meeting_panel(records, meeting, tz_name)
+    io_manager.show_summary(records)
+    return records
