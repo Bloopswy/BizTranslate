@@ -42,3 +42,13 @@ TIMEZONE_CHOICES = [
     AUTO_TIMEZONE, "UTC", "Asia/Singapore", "Asia/Jakarta", "Asia/Shanghai", "Asia/Hong_Kong",
     "Asia/Tokyo", "Europe/London", "America/New_York", "America/Los_Angeles", "Australia/Sydney",
 ]
+
+def valid_timestamp(value):
+    """The timestamp text if it is a valid ISO 8601 time, else ''."""
+    if not isinstance(value, str):
+        return ""
+    try:
+        datetime.fromisoformat(value.strip())
+    except ValueError:
+        return ""
+    return value.strip()
