@@ -47,3 +47,8 @@ def load_records(path=DEFAULT_DATA_PATH):
         except OSError as move_error:
             logging.error("Could not move corrupt file: %s", move_error)
         return []
+
+def list_meetings(records):
+    return sorted({str(r.get("meeting", "")) for r in records if r.get("meeting")})
+
+
