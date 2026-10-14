@@ -22,6 +22,7 @@ import logic_manager
 
 LOG_PATH = os.environ.get("LOG_FILE", os.path.join("data", "app.log"))
 
+
 def setup_logging():
     """Log to a file only, so all terminal output stays in io_manager."""
     folder = os.path.dirname(LOG_PATH)
@@ -32,7 +33,8 @@ def setup_logging():
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    
+
+
 def process_record(raw_record, records, api_key):
     """Run one sentence through AI -> logic -> data.
 
@@ -69,6 +71,8 @@ def process_records(raw_records, records, api_key, tz_name=None):
         "\nDone: %(processed)d translated, %(skipped)d already done, %(failed)d failed." % counts
     )
     return records
+
+
 def load_raw_records_from_files(file_names, setup, name_meeting_after_file=False):
     """Read the chosen meeting files. Returns a de-duplicated list of raw sentence records.
 
@@ -112,6 +116,7 @@ def run_batch(records, api_key, setup, tz_name=None, name_meeting_after_file=Tru
         show_meeting_panel(records, meeting, tz_name)
     io_manager.show_summary(records)
     return records
+
 
 def run_interactive(records, api_key, setup, tz_name=None):
     while True:
