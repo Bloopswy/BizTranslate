@@ -87,3 +87,12 @@ def ask(prompt):
     except EOFError:
         return None
 
+def prompt_choice(prompt, valid_choices):
+    """Re-prompt until the answer is one of `valid_choices`. None means input ended."""
+    while True:
+        answer = ask(prompt)
+        if answer is None:
+            return None
+        if answer in valid_choices:
+            return answer
+        show_error("please enter one of: " + ", ".join(c if c else "(just press Enter)" for c in valid_choices))
