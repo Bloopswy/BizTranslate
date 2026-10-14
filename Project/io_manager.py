@@ -360,3 +360,21 @@ def read_meeting_file(path, setup):
     except (OSError, UnicodeDecodeError) as error:
         return [], ["cannot read %s: %s" % (path, error)]
     return parse_meeting_content(path, content, setup)
+
+
+# ---------- time ----------
+
+def format_clock(timestamp, tz_name=None, with_date=False):
+    """'14:32:05' (or with the date) in the given IANA time zone; the computer's own zone
+    if tz_name is None. Naive times are taken as UTC. Unreadable times show '--:--:--'."""
+    try:
+        moment = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError):
+        return "--:--:--"
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    try:
+        moment = moment.astimezone(ZoneInfo(tz_name)) if tz_name else moment.astimezone()
+    except (KeyError, ValueError, OSError):
+        moment = moment.astimezone(timezone.utc)
+    return moment.strftime("%Y-%m-%d %H:%M:%S" if with_date else "%H:%M:%S")
