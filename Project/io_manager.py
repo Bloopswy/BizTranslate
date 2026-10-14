@@ -52,3 +52,30 @@ def valid_timestamp(value):
     except ValueError:
         return ""
     return value.strip()
+
+def load_env_file(path=".env"):
+    """Load KEY=VALUE lines from a .env file into os.environ.
+
+    Variables that are already set in the environment win. A missing or unreadable
+    file is fine. Returns the number of variables loaded.
+    """
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            lines = handle.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return 0
+    loaded = 0
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+            loaded += 1
+    return loaded
