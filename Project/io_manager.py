@@ -260,3 +260,10 @@ def other_party(party_id):
 def now_iso():
     """The current time in UTC as ISO 8601 text, to the second."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def make_utterance_id(meeting, timestamp, position, speaker, transcript):
+    """Same sentence in the same meeting always gets the same id, so re-reading a file
+    never duplicates it. `position` (a line number) tells apart repeated sentences."""
+    key = "|".join([meeting, timestamp, str(position), speaker, transcript])
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
