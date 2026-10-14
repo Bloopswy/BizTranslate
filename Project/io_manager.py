@@ -43,15 +43,151 @@ TIMEZONE_CHOICES = [
     "Asia/Tokyo", "Europe/London", "America/New_York", "America/Los_Angeles", "Australia/Sydney",
 ]
 
-def valid_timestamp(value):
-    """The timestamp text if it is a valid ISO 8601 time, else ''."""
-    if not isinstance(value, str):
-        return ""
+
+# ---------- basic output ----------
+
+def show_message(text):
+    print(text)
+
+
+def show_error(text):
+    print("Error: " + text)
+
+
+# ---------- validated prompts (terminal) ----------
+
+def ask(prompt):
+    """input() wrapper. End-of-input (e.g. no terminal attached) acts like 'quit'."""
     try:
-        datetime.fromisoformat(value.strip())
-    except ValueError:
-        return ""
-    return value.strip()
+        return input(prompt).strip()
+    except EOFError:
+        return None
+
+
+def prompt_choice(prompt, valid_choices):
+    """Re-prompt until the answer is one of `valid_choices`. None means input ended."""
+    while True:
+        answer = ask(prompt)
+        if answer is None:
+            return None
+        if answer in valid_choices:
+            return answer
+        show_error("please enter one of: " + ", ".join(c if c else "(just press Enter)" for c in valid_choices))
+
+
+def describe_party(setup, party_id):
+    party = setup["parties"][party_id]
+    return "%s (%s)" % (party["name"], party["language"])
+
+
+def format_menu(setup, context_count):
+    return (
+        "\n=== Meeting Translator ===\n"
+        "Meeting: %s\n"
+        "  A: %s    B: %s\n"
+        "1. Say a sentence (type it)\n"
+        "2. Process meeting files from the input folder\n"
+        "3. Show the latest sentence and the previous %d\n"
+        "4. View the full transcript\n"
+        "5. Filter records\n"
+        "6. Summary\n"
+        "7. Meeting setup (names and languages)\n"
+        "8. Quit" % (setup["meeting"], describe_party(setup, "A"), describe_party(setup, "B"), context_count)
+    )
+
+
+def prompt_menu(setup, context_count=3):
+    show_message(format_menu(setup, context_count))
+    return prompt_choice("Choose 1-8: ", [str(n) for n in range(1, 9)])
+
+
+def prompt_speaker(setup):
+    """Returns 'A' or 'B', or None if input ended."""
+    show_message("Who is speaking?  1) %s   2) %s" % (describe_party(setup, "A"), describe_party(setup, "B")))
+    choice = prompt_choice("Speaker 1-2: ", ["1", "2"])
+    return None if choice is None else PARTY_IDS[int(choice) - 1]
+
+
+def prompt_sentence():
+    """Ask for one typed sentence. Returns the text or None if input ended."""
+    while True:
+        text = ask("Sentence: ")
+        if text is None:
+            return None
+        if not text:
+            show_error("the sentence cannot be empty")
+        elif len(text) > MAX_SENTENCE_CHARS:
+            show_error("the sentence is too long (max %d characters)" % MAX_SENTENCE_CHARS)
+        else:
+            return text
+
+
+def prompt_language_or_keep(label, current):
+    show_message("%s: 1) English  2) Indonesian  3) Chinese  (Enter keeps %s)" % (label, current))
+    choice = prompt_choice("Choice: ", ["", "1", "2", "3"])
+    if choice is None:
+        return None
+    return current if choice == "" else LANGUAGES[int(choice) - 1]
+
+
+def prompt_setup(current):
+    """Ask for meeting name, party names and languages (Enter keeps the current value).
+    Returns a new setup, or None if input ended."""
+    raw = {"meeting": ask("Meeting name [%s]: " % current["meeting"]), "parties": {}}
+    if raw["meeting"] is None:
+        return None
+    for party_id in PARTY_IDS:
+        party = current["parties"][party_id]
+        name = ask("Name of party %s [%s]: " % (party_id, party["name"]))
+        language = prompt_language_or_keep("Language of party %s" % party_id, party["language"])
+        if name is None or language is None:
+            return None
+        raw["parties"][party_id] = {"name": name or party["name"], "language": language}
+    return normalise_setup(raw, current)
+
+
+def prompt_filter(setup):
+    """Ask how to filter. Returns keyword arguments for data_manager.filter_records_multi, or None."""
+    show_message("Filter by: 1) tone  2) language spoken  3) translated into  4) speaker  5) outcome")
+    choice = prompt_choice("Filter 1-5: ", ["1", "2", "3", "4", "5"])
+    if choice is None:
+        return None
+    if choice == "1":
+        value = prompt_choice("Tone (%s): " % "/".join(TONE_ORDER), TONE_ORDER)
+        return None if value is None else {"tones": [value]}
+    if choice == "2":
+        value = prompt_choice("Language (%s): " % "/".join(DETECTED_LANGUAGES), DETECTED_LANGUAGES)
+        return None if value is None else {"languages": [value]}
+    if choice == "3":
+        value = prompt_choice("Language (%s): " % "/".join(LANGUAGES), LANGUAGES)
+        return None if value is None else {"target_languages": [value]}
+    if choice == "4":
+        show_message("1) %s   2) %s" % (describe_party(setup, "A"), describe_party(setup, "B")))
+        value = prompt_choice("Speaker 1-2: ", ["1", "2"])
+        return None if value is None else {"speakers": [setup["parties"][PARTY_IDS[int(value) - 1]]["name"]]}
+    value = prompt_choice("Outcome (%s): " % "/".join(OUTCOME_ORDER), OUTCOME_ORDER)
+    return None if value is None else {"outcome": value}
+
+
+def prompt_file_choice(files):
+    """Let the user pick one file (or all). Returns a list of file names, or None."""
+    if not files:
+        show_error("no .json or .txt files found in the '%s' folder" % INPUT_DIR)
+        return None
+    show_message("\nFiles in '%s':" % INPUT_DIR)
+    for number, name in enumerate(files, start=1):
+        show_message("  %d. %s" % (number, name))
+    show_message("  A. all files")
+    valid = [str(n) for n in range(1, len(files) + 1)] + ["A", "a"]
+    choice = prompt_choice("Choose a file: ", valid)
+    if choice is None:
+        return None
+    if choice.lower() == "a":
+        return files
+    return [files[int(choice) - 1]]
+
+
+# ---------- configuration ----------
 
 def load_env_file(path=".env"):
     """Load KEY=VALUE lines from a .env file into os.environ.
@@ -80,150 +216,15 @@ def load_env_file(path=".env"):
             loaded += 1
     return loaded
 
-def ask(prompt):
-    """input() wrapper. End-of-input (e.g. no terminal attached) acts like 'quit'."""
-    try:
-        return input(prompt).strip()
-    except EOFError:
-        return None
-
-def prompt_choice(prompt, valid_choices):
-    """Re-prompt until the answer is one of `valid_choices`. None means input ended."""
-    while True:
-        answer = ask(prompt)
-        if answer is None:
-            return None
-        if answer in valid_choices:
-            return answer
-        show_error("please enter one of: " + ", ".join(c if c else "(just press Enter)" for c in valid_choices))
-
-def prompt_sentence():
-    """Ask for one typed sentence. Returns the text or None if input ended."""
-    while True:
-        text = ask("Sentence: ")
-        if text is None:
-            return None
-        if not text:
-            show_error("the sentence cannot be empty")
-        elif len(text) > MAX_SENTENCE_CHARS:
-            show_error("the sentence is too long (max %d characters)" % MAX_SENTENCE_CHARS)
-        else:
-            return text
-
-def prompt_speaker(setup):
-    """Returns 'A' or 'B', or None if input ended."""
-    show_message("Who is speaking?  1) %s   2) %s" % (describe_party(setup, "A"), describe_party(setup, "B")))
-    choice = prompt_choice("Speaker 1-2: ", ["1", "2"])
-    return None if choice is None else PARTY_IDS[int(choice) - 1]
-
-def prompt_language_or_keep(label, current):
-    show_message("%s: 1) English  2) Indonesian  3) Chinese  (Enter keeps %s)" % (label, current))
-    choice = prompt_choice("Choice: ", ["", "1", "2", "3"])
-    if choice is None:
-        return None
-    return current if choice == "" else LANGUAGES[int(choice) - 1]
-
-def prompt_filter(setup):
-    """Ask how to filter. Returns keyword arguments for data_manager.filter_records_multi, or None."""
-    show_message("Filter by: 1) tone  2) language spoken  3) translated into  4) speaker  5) outcome")
-    choice = prompt_choice("Filter 1-5: ", ["1", "2", "3", "4", "5"])
-    if choice is None:
-        return None
-    if choice == "1":
-        value = prompt_choice("Tone (%s): " % "/".join(TONE_ORDER), TONE_ORDER)
-        return None if value is None else {"tones": [value]}
-    if choice == "2":
-        value = prompt_choice("Language (%s): " % "/".join(DETECTED_LANGUAGES), DETECTED_LANGUAGES)
-        return None if value is None else {"languages": [value]}
-    if choice == "3":
-        value = prompt_choice("Language (%s): " % "/".join(LANGUAGES), LANGUAGES)
-        return None if value is None else {"target_languages": [value]}
-    if choice == "4":
-        show_message("1) %s   2) %s" % (describe_party(setup, "A"), describe_party(setup, "B")))
-        value = prompt_choice("Speaker 1-2: ", ["1", "2"])
-        return None if value is None else {"speakers": [setup["parties"][PARTY_IDS[int(value) - 1]]["name"]]}
-    value = prompt_choice("Outcome (%s): " % "/".join(OUTCOME_ORDER), OUTCOME_ORDER)
-    return None if value is None else {"outcome": value}
-
-def prompt_file_choice(files):
-    """Let the user pick one file (or all). Returns a list of file names, or None."""
-    if not files:
-        show_error("no .json or .txt files found in the '%s' folder" % INPUT_DIR)
-        return None
-    show_message("\nFiles in '%s':" % INPUT_DIR)
-    for number, name in enumerate(files, start=1):
-        show_message("  %d. %s" % (number, name))
-    show_message("  A. all files")
-    valid = [str(n) for n in range(1, len(files) + 1)] + ["A", "a"]
-    choice = prompt_choice("Choose a file: ", valid)
-    if choice is None:
-        return None
-    if choice.lower() == "a":
-        return files
-    return [files[int(choice) - 1]]
-
-def list_input_files(folder=INPUT_DIR):
-    """Names of .json / .txt files in the input folder (sorted)."""
-    try:
-        names = os.listdir(folder)
-    except OSError:
-        return []
-    return sorted(n for n in names if n.lower().endswith((".json", ".txt")))
-
-def prompt_setup(current):
-    """Ask for meeting name, party names and languages (Enter keeps the current value).
-    Returns a new setup, or None if input ended."""
-    raw = {"meeting": ask("Meeting name [%s]: " % current["meeting"]), "parties": {}}
-    if raw["meeting"] is None:
-        return None
-    for party_id in PARTY_IDS:
-        party = current["parties"][party_id]
-        name = ask("Name of party %s [%s]: " % (party_id, party["name"]))
-        language = prompt_language_or_keep("Language of party %s" % party_id, party["language"])
-        if name is None or language is None:
-            return None
-        raw["parties"][party_id] = {"name": name or party["name"], "language": language}
-    return normalise_setup(raw, current)
-
-def describe_party(setup, party_id):
-    party = setup["parties"][party_id]
-    return "%s (%s)" % (party["name"], party["language"])
-
-def format_menu(setup, context_count):
-    return (
-        "\n=== Meeting Translator ===\n"
-        "Meeting: %s\n"
-        "  A: %s    B: %s\n"
-        "1. Say a sentence (type it)\n"
-        "2. Process meeting files from the input folder\n"
-        "3. Show the latest sentence and the previous %d\n"
-        "4. View the full transcript\n"
-        "5. Filter records\n"
-        "6. Summary\n"
-        "7. Meeting setup (names and languages)\n"
-        "8. Quit" % (setup["meeting"], describe_party(setup, "A"), describe_party(setup, "B"), context_count)
-    )
-
-def prompt_menu(setup, context_count=3):
-    show_message(format_menu(setup, context_count))
-    return prompt_choice("Choose 1-8: ", [str(n) for n in range(1, 9)])
-
 
 # ---------- meeting setup and sentence records ----------
 
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 def default_meeting_name():
     return "meeting-" + datetime.now().strftime("%Y-%m-%d")
-
-
-def default_setup():
-    """A fresh two-party meeting: Party A speaks English, Party B speaks Indonesian."""
-    return {
-        "meeting": default_meeting_name(),
-        "parties": {
-            "A": {"name": "Party A", "language": "English"},
-            "B": {"name": "Party B", "language": "Indonesian"},
-        },
-    }
 
 
 def clean_label(text, fallback, limit):
@@ -233,6 +234,16 @@ def clean_label(text, fallback, limit):
     cleaned = " ".join(text.split())
     cleaned = "".join(ch for ch in cleaned if ch.isprintable())[:limit].strip()
     return cleaned or fallback
+
+
+def default_setup():
+    return {
+        "meeting": default_meeting_name(),
+        "parties": {
+            "A": {"name": "Party A", "language": "English"},
+            "B": {"name": "Party B", "language": "Indonesian"},
+        },
+    }
 
 
 def normalise_setup(raw, fallback=None):
@@ -253,13 +264,18 @@ def normalise_setup(raw, fallback=None):
 
 
 def other_party(party_id):
-    """The listener: 'B' when A speaks, 'A' when B speaks."""
     return "B" if party_id == "A" else "A"
 
 
-def now_iso():
-    """The current time in UTC as ISO 8601 text, to the second."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def valid_timestamp(value):
+    """The timestamp text if it is a valid ISO 8601 time, else ''."""
+    if not isinstance(value, str):
+        return ""
+    try:
+        datetime.fromisoformat(value.strip())
+    except ValueError:
+        return ""
+    return value.strip()
 
 
 def make_utterance_id(meeting, timestamp, position, speaker, transcript):
@@ -273,8 +289,6 @@ def make_utterance(setup, speaker, transcript, timestamp=None, input_type="text"
     """Build one raw sentence record. Returns (record, None) or (None, error_message).
 
     timestamp=None means "now" (live input). An unreadable timestamp is stored as ''.
-    The sentence is translated towards the other party, so the listener's language
-    becomes the target language.
     """
     speaker = speaker.strip().upper() if isinstance(speaker, str) else ""
     if speaker not in PARTY_IDS:
@@ -302,8 +316,16 @@ def make_utterance(setup, speaker, transcript, timestamp=None, input_type="text"
 
 # ---------- reading meeting files ----------
 
-# "A: text", "b: text" or "[2026-10-14T09:00:05+08:00] B: text" (a full-width colon also works)
-TEXT_LINE = re.compile(r"^\s*(?:\[(?P<time>[^\]]*)\]\s*)?(?P<speaker>[AaBb])\s*[:：]\s*(?P<text>.*\S)\s*$")
+TEXT_LINE = re.compile(r"^\s*(?:\[(?P<time>[^\]]*)\]\s*)?(?P<speaker>[AaBb])\s*[:\uFF1A]\s*(?P<text>.*\S)\s*$")
+
+
+def list_input_files(folder=INPUT_DIR):
+    """Names of .json / .txt files in the input folder (sorted)."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    return sorted(n for n in names if n.lower().endswith((".json", ".txt")))
 
 
 def parse_meeting_content(name, content, setup):
@@ -380,10 +402,76 @@ def format_clock(timestamp, tz_name=None, with_date=False):
     return moment.strftime("%Y-%m-%d %H:%M:%S" if with_date else "%H:%M:%S")
 
 
+# ---------- speech to text (runs locally; the AI never receives audio) ----------
+
+_speech_models = {}  # module-level cache so the model loads once per process
+
+
+def get_speech_model():
+    """Load (once) the local Whisper model. Raises ImportError if not installed."""
+    if "model" not in _speech_models:
+        from faster_whisper import WhisperModel
+        _speech_models["model"] = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
+    return _speech_models["model"]
+
+
+def pick_supported_language(language_probabilities):
+    """From Whisper's (code, probability) pairs choose the likeliest of English,
+    Chinese or Indonesian. Returns a short code like 'id', or None."""
+    best_code, best_probability = None, -1.0
+    for code, probability in language_probabilities or []:
+        if code in WHISPER_TO_SPEECH_CODE and probability > best_probability:
+            best_code, best_probability = code, probability
+    return best_code
+
+
+def run_transcription(model, audio_bytes, language):
+    """One Whisper pass. Returns (text, info). Must consume the segment generator."""
+    segments, info = model.transcribe(
+        io.BytesIO(audio_bytes), language=language, beam_size=5, temperature=0.0, vad_filter=True
+    )
+    text = " ".join(segment.text.strip() for segment in segments).strip()
+    return text, info
+
+
+def transcribe_audio(audio_bytes, speech_code=None):
+    """Turn a recording into text.
+
+    speech_code is 'en-US', 'zh-CN', 'id-ID' or None for auto-detect (restricted to those three).
+    Returns (text, speech_code_used_or_None, error_or_None). Never raises.
+    """
+    try:
+        model = get_speech_model()
+    except ImportError:
+        return "", None, "Speech-to-text is not installed. Run: pip install faster-whisper"
+    except Exception as error:  # noqa: BLE001 - e.g. model download failed
+        return "", None, "Could not load the speech model (%s). The first run needs internet to download it." % error
+
+    try:
+        language = SPEECH_CODE_TO_WHISPER.get(speech_code)
+        text, info = run_transcription(model, audio_bytes, language)
+        used = language or getattr(info, "language", None)
+        if language is None:
+            best = pick_supported_language(getattr(info, "all_language_probs", None))
+            if best is not None and best != used:  # e.g. Whisper said Malay, we only support Indonesian
+                text, info = run_transcription(model, audio_bytes, best)
+                used = best
+        return text, WHISPER_TO_SPEECH_CODE.get(used), None
+    except Exception as error:  # noqa: BLE001 - bad/corrupt audio etc.
+        return "", None, "Could not transcribe that recording (%s)." % error
+
+
 # ---------- formatting (terminal) ----------
 
+def count_by(records, key):
+    counts = {}
+    for record in records:
+        value = record.get(key, "?")
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
 def direction_text(record):
-    """'Acme (English) -> Mitra (Indonesian)': who is speaking to whom, in which languages."""
     return "%s (%s) -> %s (%s)" % (record.get("speaker_name", "?"), record.get("speaker_language", "?"),
                                     record.get("listener_name", "?"), record.get("target_language", "?"))
 
@@ -395,8 +483,9 @@ def format_sentence(record, tz_name=None):
                            record.get("outcome", "?")),
         "    Said       : %s" % record.get("transcript", ""),
         "    Translated : %s" % record.get("translation", ""),
-        "    Tone       : %s (confidence %.2f), intensity %s/5" % (
-            record.get("tone", "?"), record.get("tone_confidence", 0), record.get("intensity", "?")),
+        "    Tone       : %s (confidence %.2f), intensity %s/5, attention score %s/100" % (
+            record.get("tone", "?"), record.get("tone_confidence", 0), record.get("intensity", "?"),
+            record.get("score", "-")),
         "    Note       : %s" % "; ".join(record.get("reasons", [])),
     ]
     return "\n".join(lines)
@@ -410,22 +499,12 @@ def format_short_sentence(record, tz_name=None):
 
 
 def format_conversation(latest, previous, tz_name=None):
-    """The latest sentence in full, then the previous sentences in short form."""
     if latest is None:
         return "Nothing has been said in this meeting yet."
     lines = ["--- Latest translation ---", format_sentence(latest, tz_name),
              "\n--- Previous %d sentences ---" % len(previous) if previous else "\n(no earlier sentences)"]
     lines.extend(format_short_sentence(record, tz_name) for record in previous)
     return "\n".join(lines)
-
-
-def count_by(records, key):
-    """{value: how many records have it} for one field, e.g. count_by(records, "tone")."""
-    counts = {}
-    for record in records:
-        value = record.get(key, "?")
-        counts[value] = counts.get(value, 0) + 1
-    return counts
 
 
 def format_transcript(records, tz_name=None):
@@ -444,16 +523,6 @@ def format_summary(records):
         parts = ", ".join("%s=%d" % (name, counts[name]) for name in sorted(counts))
         lines.append("%s: %s" % (title, parts))
     return "\n".join(lines)
-
-
-# ---------- basic output (the only print() calls in the project) ----------
-
-def show_message(text):
-    print(text)
-
-
-def show_error(text):
-    print("Error: " + text)
 
 
 def show_conversation(latest, previous, tz_name=None):
@@ -477,7 +546,7 @@ def show_summary(records):
 CSV_COLUMNS = [
     "meeting", "seq", "timestamp", "speaker_name", "speaker_language", "listener_name", "target_language",
     "transcript", "translation", "detected_language", "language_confidence", "translation_confidence",
-    "tone", "tone_confidence", "intensity", "tone_reason", "outcome", "reasons", "input_type", "id",
+    "tone", "tone_confidence", "intensity", "score", "tone_reason", "outcome", "reasons", "input_type", "id",
 ]
 
 
@@ -508,6 +577,7 @@ def records_to_text(records, tz_name=None):
             record.get("transcript", ""), record.get("translation", ""), record.get("tone", "?"),
             record.get("outcome", "?")))
     return "\n\n".join(blocks) + ("\n" if blocks else "")
+
 
 # ======================================================================
 # Streamlit user interface (the web version of the same user boundary)
@@ -872,4 +942,3 @@ def ui_filter_results(matched, total, tz_name):
 
 def ui_subheader(text):
     _st().subheader(text)
-
