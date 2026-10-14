@@ -1,4 +1,24 @@
+"""Logic layer - the domain brain.
 
+Domain: live interpreting for a business meeting between two parties, each speaking
+English, Indonesian or Chinese. The AI translates every sentence into the other party's
+language and reads its tone; this layer decides how the sentence should be treated.
+
+Three steps, each a function that takes the AI-enriched record (the sentence plus the
+AI's fields):
+
+  evaluate(record) -> which rules fired (reject / check / tension findings)
+  score(record)    -> 0-100 "attention score": stronger, more negative tone scores higher
+  route(record)    -> the final outcome, using evaluate() and score()
+
+Outcomes:
+  TENSION - a heated moment (negative tone, strong, and the AI is confident): both sides
+            should slow down and confirm understanding
+  CHECK   - the translation may be unreliable (low confidence, or the speaker used a
+            different language than expected): confirm with the speaker
+  ACCEPT  - clear and routine
+  REJECT  - unusable (empty translation or unsupported language)
+"""
 
 CONTEXT_SENTENCES = 3  # how many previous sentences are shown and given to the AI as context
 
@@ -7,46 +27,15 @@ OUTCOME_CHECK = "CHECK"
 OUTCOME_ACCEPT = "ACCEPT"
 OUTCOME_REJECT = "REJECT"
 
-TENSION_TONES = ("angry", "frustrated", "anxious")
-TENSION_MIN_INTENSITY = 4
-TENSION_MIN_TONE_CONFIDENCE = 0.7
-MIN_LANGUAGE_CONFIDENCE = 0.6
-MIN_TRANSLATION_CONFIDENCE = 0.6
+def route(record):
+    """Decide the outcome. Returns {"outcome": ..., "score": ..., "reasons": [...]}."""
+    findings = evaluate(record)
 
-
-def decide_outcome(record, ai_fields):
-    """Apply the business rules. Returns {"outcome": ..., "reasons": [...]}."""
-    # Rule 1 - REJECT: unusable output.
-    if not ai_fields["translation"].strip():
-        return {"outcome": OUTCOME_REJECT, "reasons": ["empty translation"]}
-    if ai_fields["detected_language"] == "Other":
-        return {"outcome": OUTCOME_REJECT,
-                "reasons": ["language is not English, Indonesian or Chinese"]}
-
-    # Rule 2 - things that make the translation less trustworthy.
-    check_reasons = []
-    if ai_fields["language_confidence"] < MIN_LANGUAGE_CONFIDENCE:
-        check_reasons.append("low language confidence (%.2f)" % ai_fields["language_confidence"])
-    if ai_fields["translation_confidence"] < MIN_TRANSLATION_CONFIDENCE:
-        check_reasons.append("low translation confidence (%.2f)" % ai_fields["translation_confidence"])
-    expected = record.get("speaker_language")
-    if expected and expected != ai_fields["detected_language"]:
-        check_reasons.append("%s is set to %s but the AI heard %s"
-                             % (record.get("speaker_name", "the speaker"), expected,
-                                ai_fields["detected_language"]))
-
-    # Rule 3 - TENSION: multi-condition rule on three AI output fields.
-    if (
-        ai_fields["tone"] in TENSION_TONES
-        and ai_fields["intensity"] >= TENSION_MIN_INTENSITY
-        and ai_fields["tone_confidence"] >= TENSION_MIN_TONE_CONFIDENCE
-    ):
-        reasons = ["%s tone (confidence %.2f) at intensity %d"
-                   % (ai_fields["tone"], ai_fields["tone_confidence"], ai_fields["intensity"])]
-        return {"outcome": OUTCOME_TENSION, "reasons": reasons + check_reasons}
-
-    if check_reasons:
-        return {"outcome": OUTCOME_CHECK, "reasons": check_reasons}
-
-    # Rule 4 - ACCEPT.
-    return {"outcome": OUTCOME_ACCEPT, "reasons": ["clear and routine"]}
+    if findings["reject"]:
+        return {"outcome": OUTCOME_REJECT, "score": 0, "reasons": findings["reject"]}
+    points = score(record)
+    if findings["tension"]:  # tension wins, but still reports any translation doubts
+        return {"outcome": OUTCOME_TENSION, "score": points, "reasons": findings["tension"] + findings["check"]}
+    if findings["check"]:
+        return {"outcome": OUTCOME_CHECK, "score": points, "reasons": findings["check"]}
+    return {"outcome": OUTCOME_ACCEPT, "score": points, "reasons": ["clear and routine"]}
