@@ -33,6 +33,11 @@ TENSION_MIN_TONE_CONFIDENCE = 0.7
 MIN_LANGUAGE_CONFIDENCE = 0.6
 MIN_TRANSLATION_CONFIDENCE = 0.6
 
+TONE_WEIGHT = {
+    "angry": 30, "frustrated": 25, "anxious": 20, "urgent": 15,
+    "sad": 10, "neutral": 0, "happy": 0, "grateful": 0,
+}
+
 def evaluate(record):
     """Apply the business rules. Returns {"reject": [...], "check": [...], "tension": [...]},
     each a list of human-readable reasons (an empty list means that rule did not fire)."""
@@ -73,3 +78,8 @@ def route(record):
     if findings["check"]:
         return {"outcome": OUTCOME_CHECK, "score": points, "reasons": findings["check"]}
     return {"outcome": OUTCOME_ACCEPT, "score": points, "reasons": ["clear and routine"]}
+
+def score(record):
+    """Attention score from 0 to 100: intensity (10-50) plus a weight for the tone, capped at 100."""
+    points = record["intensity"] * 10 + TONE_WEIGHT.get(record["tone"], 0)
+    return max(0, min(100, points))
