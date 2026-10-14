@@ -27,6 +27,27 @@ OUTCOME_CHECK = "CHECK"
 OUTCOME_ACCEPT = "ACCEPT"
 OUTCOME_REJECT = "REJECT"
 
+def evaluate(record):
+    """Apply the business rules. Returns {"reject": [...], "check": [...], "tension": [...]},
+    each a list of human-readable reasons (an empty list means that rule did not fire)."""
+    findings = {"reject": [], "check": [], "tension": []}
+    if not record["translation"].strip():
+        findings["reject"].append("empty translation")
+    if record["detected_language"] == "Other":
+        findings["reject"].append("language is not English, Indonesian or Chinese")
+
+    # Rule 2 - CHECK: things that make the translation less trustworthy.
+    if record["language_confidence"] < MIN_LANGUAGE_CONFIDENCE:
+        findings["check"].append("low language confidence (%.2f)" % record["language_confidence"])
+    if record["translation_confidence"] < MIN_TRANSLATION_CONFIDENCE:
+        findings["check"].append("low translation confidence (%.2f)" % record["translation_confidence"])
+    expected = record.get("speaker_language")
+    if expected and expected != record["detected_language"]:
+        findings["check"].append("%s is set to %s but the AI heard %s"
+                                 % (record.get("speaker_name", "the speaker"), expected,
+                                    record["detected_language"]))
+    return findings
+
 def route(record):
     """Decide the outcome. Returns {"outcome": ..., "score": ..., "reasons": [...]}."""
     findings = evaluate(record)
