@@ -169,3 +169,18 @@ def list_input_files(folder=INPUT_DIR):
     except OSError:
         return []
     return sorted(n for n in names if n.lower().endswith((".json", ".txt")))
+
+def prompt_setup(current):
+    """Ask for meeting name, party names and languages (Enter keeps the current value).
+    Returns a new setup, or None if input ended."""
+    raw = {"meeting": ask("Meeting name [%s]: " % current["meeting"]), "parties": {}}
+    if raw["meeting"] is None:
+        return None
+    for party_id in PARTY_IDS:
+        party = current["parties"][party_id]
+        name = ask("Name of party %s [%s]: " % (party_id, party["name"]))
+        language = prompt_language_or_keep("Language of party %s" % party_id, party["language"])
+        if name is None or language is None:
+            return None
+        raw["parties"][party_id] = {"name": name or party["name"], "language": language}
+    return normalise_setup(raw, current)
