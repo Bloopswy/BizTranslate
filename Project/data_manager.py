@@ -1,9 +1,17 @@
+"""Data layer - system memory across runs.
+
+Stores every processed sentence (from every meeting) in a single JSON file. Missing or
+corrupt files never crash the program: a missing file means "no records yet", a corrupt
+file is moved aside (so nothing is lost) and the system starts fresh.
+"""
+
 import json
 import logging
 import os
 
 DEFAULT_DATA_PATH = os.environ.get("DATA_FILE", os.path.join("data", "records.json"))
 LEGACY_MEETING = "earlier-records"
+
 
 def migrate_record(record):
     """Upgrade a record saved by an older version so every screen can read it."""
@@ -18,6 +26,7 @@ def migrate_record(record):
     migrated.setdefault("target_language", "English")
     migrated.setdefault("seq", 0)
     return migrated
+
 
 def _seq(record):
     value = record.get("seq", 0)
@@ -48,19 +57,59 @@ def load_records(path=DEFAULT_DATA_PATH):
             logging.error("Could not move corrupt file: %s", move_error)
         return []
 
-# FOR MEETINGS
+
+def save_records(records, path=DEFAULT_DATA_PATH):
+    """Write all records atomically. Returns True on success."""
+    folder = os.path.dirname(path)
+    try:
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        temp_path = path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(sort_records(records), handle, ensure_ascii=False, indent=2, sort_keys=True)
+        os.replace(temp_path, path)
+        return True
+    except OSError as error:
+        logging.error("Could not save %s: %s", path, error)
+        return False
+
+
+def find_by_id(records, record_id):
+    for record in records:
+        if record.get("id") == record_id:
+            return record
+    return None
+
+
+def add_record(records, record):
+    """Return a new list with `record` added (or replacing one with the same id)."""
+    remaining = [r for r in records if r.get("id") != record.get("id")]
+    return remaining + [record]
+
+
+# ---------- meetings ----------
 
 def list_meetings(records):
     return sorted({str(r.get("meeting", "")) for r in records if r.get("meeting")})
+
 
 def meeting_records(records, meeting):
     """All sentences of one meeting, oldest first."""
     return sort_records([r for r in records if r.get("meeting") == meeting])
 
+
 def next_sequence(records, meeting):
     """Position the next sentence will take in this meeting (1, 2, 3, ...)."""
     numbers = [_seq(r) for r in records if r.get("meeting") == meeting]
     return max(numbers) + 1 if numbers else 1
+
+
+def last_sentences(records, meeting, count):
+    """The last `count` sentences of the meeting, oldest first."""
+    if count <= 0:
+        return []
+    return meeting_records(records, meeting)[-count:]
+
 
 def latest_with_context(records, meeting, context_count):
     """Returns (latest sentence or None, the `context_count` sentences before it)."""
@@ -70,14 +119,8 @@ def latest_with_context(records, meeting, context_count):
     earlier = rows[:-1]
     return rows[-1], (earlier[-context_count:] if context_count > 0 else [])
 
-def last_sentences(records, meeting, count):
-    """The last `count` sentences of the meeting, oldest first."""
-    if count <= 0:
-        return []
-    return meeting_records(records, meeting)[-count:]
 
-
-# FOR FILTERING
+# ---------- filtering ----------
 
 def filter_records_multi(records, tones=None, languages=None, target_languages=None, speakers=None,
                          match="all", outcome=None, meeting=None):
