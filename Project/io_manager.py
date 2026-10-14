@@ -350,3 +350,13 @@ def parse_meeting_content(name, content, setup):
         else:
             records.append(record)
     return records, errors
+
+
+def read_meeting_file(path, setup):
+    """Read a meeting file from disk. Returns (records, errors). Never raises."""
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            content = handle.read()
+    except (OSError, UnicodeDecodeError) as error:
+        return [], ["cannot read %s: %s" % (path, error)]
+    return parse_meeting_content(path, content, setup)
