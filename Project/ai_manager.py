@@ -1,7 +1,25 @@
+"""AI processing layer (Gemma via the Google AI Studio / Gemini API).
+
+Responsibilities (and nothing else):
+  - build a prompt from one sentence plus the few sentences before it (TEXT only -
+    speech is transcribed upstream)
+  - call the Gemma model through the generateContent endpoint
+  - extract the JSON from the reply and validate its schema
+  - retry on malformed output / transient failures
+  - log and continue on failure - never crash
+
+No domain logic lives here. Deciding what a tone *means* is the logic layer's job.
+
+Gemma does not document JSON-mode / response-schema support, so the JSON contract is
+enforced the portable way: the prompt specifies the exact shape and validate_response()
+rejects anything that does not match (then we retry).
+"""
+
 import json
 import logging
 import os
 import time
+
 import requests
 
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -146,7 +164,7 @@ def _is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def validate_schema(data):
+def validate_response(data):
     """True only if `data` matches the response contract exactly."""
     if not isinstance(data, dict):
         return False
@@ -180,7 +198,7 @@ def analyse_record(record, api_key, context=None, model=None):
         raw_text = call_api(body, api_key, model)
         if raw_text is not None:
             data = parse_response(raw_text)
-            if data is not None and validate_schema(data):
+            if data is not None and validate_response(data):
                 return {key: data[key] for key in RESPONSE_FIELDS}
             logging.warning("Malformed AI output for record %s (attempt %d)", record.get("id"), attempt)
         if attempt < MAX_ATTEMPTS:
