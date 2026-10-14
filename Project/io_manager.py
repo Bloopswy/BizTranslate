@@ -184,3 +184,26 @@ def prompt_setup(current):
             return None
         raw["parties"][party_id] = {"name": name or party["name"], "language": language}
     return normalise_setup(raw, current)
+
+def describe_party(setup, party_id):
+    party = setup["parties"][party_id]
+    return "%s (%s)" % (party["name"], party["language"])
+
+def format_menu(setup, context_count):
+    return (
+        "\n=== Meeting Translator ===\n"
+        "Meeting: %s\n"
+        "  A: %s    B: %s\n"
+        "1. Say a sentence (type it)\n"
+        "2. Process meeting files from the input folder\n"
+        "3. Show the latest sentence and the previous %d\n"
+        "4. View the full transcript\n"
+        "5. Filter records\n"
+        "6. Summary\n"
+        "7. Meeting setup (names and languages)\n"
+        "8. Quit" % (setup["meeting"], describe_party(setup, "A"), describe_party(setup, "B"), context_count)
+    )
+
+def prompt_menu(setup, context_count=3):
+    show_message(format_menu(setup, context_count))
+    return prompt_choice("Choose 1-8: ", [str(n) for n in range(1, 9)])
