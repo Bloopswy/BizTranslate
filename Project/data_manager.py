@@ -51,4 +51,6 @@ def load_records(path=DEFAULT_DATA_PATH):
 def list_meetings(records):
     return sorted({str(r.get("meeting", "")) for r in records if r.get("meeting")})
 
-
+def meeting_records(records, meeting):
+    """All sentences of one meeting, oldest first."""
+    return sort_records([r for r in records if r.get("meeting") == meeting])
