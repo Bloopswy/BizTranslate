@@ -22,3 +22,13 @@ import logic_manager
 
 LOG_PATH = os.environ.get("LOG_FILE", os.path.join("data", "app.log"))
 
+def setup_logging():
+    """Log to a file only, so all terminal output stays in io_manager."""
+    folder = os.path.dirname(LOG_PATH)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    logging.basicConfig(
+        filename=LOG_PATH,
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
