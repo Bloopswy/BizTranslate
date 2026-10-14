@@ -207,3 +207,20 @@ def format_menu(setup, context_count):
 def prompt_menu(setup, context_count=3):
     show_message(format_menu(setup, context_count))
     return prompt_choice("Choose 1-8: ", [str(n) for n in range(1, 9)])
+
+
+# ---------- meeting setup and sentence records ----------
+
+def default_meeting_name():
+    return "meeting-" + datetime.now().strftime("%Y-%m-%d")
+
+
+def default_setup():
+    """A fresh two-party meeting: Party A speaks English, Party B speaks Indonesian."""
+    return {
+        "meeting": default_meeting_name(),
+        "parties": {
+            "A": {"name": "Party A", "language": "English"},
+            "B": {"name": "Party B", "language": "Indonesian"},
+        },
+    }
