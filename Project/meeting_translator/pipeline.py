@@ -1,7 +1,4 @@
-"""MeetingPipeline: one sentence through AI -> logic -> data, reporting progress to observers."""
-
 from __future__ import annotations
-
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -12,12 +9,10 @@ from .data_layer import DataManager
 from .logic_layer import LogicManager
 from .models import ProcessedRecord, Utterance
 
-
 class ProcessStatus(str, Enum):
     PROCESSED = "processed"
     SKIPPED = "skipped"  # already processed (e.g. the same file read twice)
     FAILED = "failed"    # AI gave up; logged, and can be retried later
-
 
 class PipelineObserver(ABC):
     """Interface: told about each result. The pipeline never prints - the IO layer observes it."""
@@ -29,7 +24,6 @@ class PipelineObserver(ABC):
     @abstractmethod
     def on_failed(self, utterance: Utterance) -> None:
         """The AI could not process a sentence."""
-
 
 class MeetingPipeline:
     """Collaborates with the three other managers (association) - none of them knows the others."""

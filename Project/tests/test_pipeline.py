@@ -1,6 +1,5 @@
 import os
 import unittest
-
 from meeting_translator.ai_layer import AIManager
 from meeting_translator.data_layer import DataManager, JsonRecordRepository
 from meeting_translator.logic_layer import LogicManager
@@ -21,14 +20,12 @@ class Recorder(PipelineObserver):
     def on_failed(self, utterance):
         self.failed.append(utterance)
 
-
 def make_pipeline(client, repo=None, observer=None):
     data = DataManager(repo or MemoryRepository())
     data.load()
     pipeline = MeetingPipeline(AIManager(client, sleep=lambda s: None), LogicManager(), data,
                                [observer] if observer else [])
     return pipeline, data
-
 
 class PipelineTests(unittest.TestCase):
     def test_ai_output_flows_to_logic_and_storage(self):
@@ -88,7 +85,6 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(len(data2), 1)
             self.assertEqual(pipeline2.process(u), ProcessStatus.SKIPPED)
             self.assertEqual(client2.calls, [])
-
 
 if __name__ == "__main__":
     unittest.main()
