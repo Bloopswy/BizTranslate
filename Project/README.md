@@ -1,128 +1,103 @@
-# Meeting Translator
+# Meeting Translator (OOP edition – Phase 2)
 
-A live interpreter for a **business meeting between two parties** who speak **English, Indonesian or Chinese**.
-Each sentence is spoken (or typed), transcribed to text, and **Google's Gemma model reads the text only (never
-the audio), translates it into the other party's language and reads its tone**. The screen always shows the
-**latest translation plus the 3 sentences before it, each with a timestamp**.
+A live interpreter for a **business meeting between two parties** who speak English, Indonesian or Chinese.
+Each sentence (typed, **spoken**, or read from a meeting file) is sent as **text** to Google's Gemma model, which translates it
+for the other party and reads its tone. Business rules then flag tense moments (**TENSION**), doubtful
+translations (**CHECK**), unusable output (**REJECT**) or routine sentences (**ACCEPT**).
 
-## Problem statement and target users
-Business partners who do not share a language (a Singapore supplier and an Indonesian distributor, an
-English-speaking team and a Chinese client...) either hire an interpreter or lose time and trust in
-misunderstandings. This tool gives both sides an instant translation they can read, keeps a short running
-record of what was just said, and warns when a moment is tense or a translation is uncertain, so
-people can slow down and confirm before a misunderstanding costs a deal.
-
-## Architecture (4 layers, 100% procedural - no classes)
-    voice / text / file -> io_manager -> ai_manager -> logic_manager -> data_manager
-
-| File | Layer | Job |
-|---|---|---|
-| `io_manager.py` | Input | Every user boundary: terminal `print()`/`input()` **and** all Streamlit widgets; meeting setup; validation; reading meeting files; speech-to-text (local Whisper); timestamps; formatting |
-| `ai_manager.py` | AI | Builds the prompt from the sentence **plus the previous 3 sentences as context**, calls Gemma, extracts + validates the JSON, retries, never crashes |
-| `logic_manager.py` | Logic | `evaluate` (which rules fired), `score` (0-100 attention score), `route` (final outcome: TENSION / CHECK / ACCEPT / REJECT) |
-| `data_manager.py` | Data | Save/load `data/records.json`, per-meeting history, last-N sentences, filtering, survives missing/corrupt files |
-| `app.py` | Wiring | Streamlit entry point (`streamlit run app.py`) |
-| `main.py` | Wiring | Terminal entry point and the shared `process_record` pipeline |
-
-### What the AI returns for every sentence (validated JSON)
-`detected_language`, `language_confidence`, `translation`, `translation_confidence`, `tone`, `tone_confidence`,
-`intensity` (1-5) and `tone_reason`; `validate_response` rejects anything that does not match. The translation and the tone note are written in the **listener's** language.
-
-### Business rules (`evaluate` -> `score` -> `route`)
-- **REJECT**: empty translation, or the sentence is not English, Indonesian or Chinese.
-- **TENSION**: tone is angry, frustrated or anxious **and** intensity >= 4 **and** tone confidence >= 0.7.
-  The app suggests slowing down and confirming that both sides understand.
-- **CHECK**: language confidence < 0.6, translation confidence < 0.6, or the speaker used a different
-  language than the one set for that party (probably the wrong speaker or a bad transcription).
-  The app suggests confirming with the speaker. (A sentence can be TENSION and also list these doubts.)
-- **ACCEPT**: everything else.
-- **Attention score** (0-100, shown next to every sentence): intensity x 10 plus a weight for the tone (angry 30, frustrated 25, anxious 20, urgent 15, sad 10, others 0).
-
-## Using the web app (`streamlit run app.py`)
-**Sidebar - Meeting setup:** meeting name, a *Start a new meeting* button, and for **Party A** and **Party B** a
-name and a language (English / Indonesian / Chinese), plus the **time zone** used for timestamps
-(*Auto* uses your browser's zone). Sentences with the same meeting name belong together.
-
-**Live tab**
-1. Choose **who is speaking**.
-2. Give the sentence: **Record voice** (record -> *Transcribe* -> fix the text if needed -> *Translate*),
-   **Type text**, **Upload meeting file**, or **Browser transcription (HTML)**.
-   Voice is transcribed in the speaker's own language, so Whisper is told which one to expect.
-3. The **latest translation** appears large, with the original, the tone and any TENSION/CHECK warning, and below
-   it the **previous 3 sentences** (what was said, the translation, tone, and a **timestamp** for each).
-
-**Transcript tab:** the whole meeting in order with timestamps, summary counts, and downloads
-(minutes `.txt`, `.json`, `.csv`). You can switch to earlier meetings.
-
-**Filter tab:** pick any of **Tone**, **Language spoken**, **Translated into** and **Speaker**. Leave a box empty to
-ignore it. If more than one box is filled in, choose **All of them (AND)** or **Any of them (OR)**; inside one box the
-choices are always OR. "More filters" narrows by meeting and flag. Matches can be downloaded.
-
-## Meeting file formats (for the *Upload meeting file* tab and `input/`)
-JSON object (sets the parties too):
-
-    {"meeting": "supply-negotiation",
-     "parties": {"A": {"name": "Acme Foods", "language": "English"},
-                 "B": {"name": "Mitra Pangan", "language": "Indonesian"}},
-     "utterances": [{"speaker": "A", "timestamp": "2026-10-14T09:00:05+08:00", "transcript": "Good morning."},
-                    {"speaker": "B", "timestamp": "2026-10-14T09:00:21+08:00", "transcript": "Selamat pagi."}]}
-
-A plain JSON list of utterances also works (parties come from the sidebar / command line). Text files use one
-sentence per line, optionally with a timestamp:
-
-    A: Good morning
-    [2026-10-14T09:00:21+08:00] B: Selamat pagi
-
-Two examples are in `input/`. Timestamps are optional in files (shown as `--:--:--`); live sentences are stamped with
-the time they were submitted.
+Four managers (unchanged responsibilities from Phase 1), now object-oriented:
+`IOManager → AIManager → LogicManager → DataManager`. See [EXPLANATION.md](EXPLANATION.md) for the design,
+OOP/SOLID mapping and new-feature notes, and [docs/DESIGN_DIAGRAMS.md](docs/DESIGN_DIAGRAMS.md) for UML / data flow.
 
 ## Run it
-Get a Google AI Studio key at https://aistudio.google.com/apikey (it works for Gemma; the variable is still called
-`GEMINI_API_KEY`).
 
-**Locally**
-    pip install -r requirements.txt     # includes faster-whisper (speech-to-text)
-    export GEMINI_API_KEY=your-key       # Windows PowerShell: $env:GEMINI_API_KEY="your-key"
-    streamlit run app.py                 # opens http://localhost:8501
+You need a Gemini API key (https://aistudio.google.com/apikey). **Never commit it** – `.env` is git-ignored.
 
-Alternatively put `GEMINI_API_KEY=your-key` in a file named `.env` next to `app.py` (copy `.env.example`); it is
-loaded automatically. If neither is set, the app asks for the key in the sidebar.
-The **first** transcription downloads the Whisper model (about 150 MB for `base`), so it needs internet once; the
-Docker image downloads it at build time instead.
+### With Docker (recommended – nothing else to install)
+```bash
+docker build -t meeting-translator .
+# (the speech-to-text model is downloaded into the image while building; add --build-arg PRELOAD_WHISPER=0
+#  to skip that: faster build, and the model then downloads on first use instead)
 
-**Docker**
-    docker build -t meeting-translator .
-    docker run --rm -p 8501:8501 --env-file .env -v "$(pwd)/data:/app/data" meeting-translator
-    # then open http://localhost:8501
+# web GUI at http://localhost:8501 (records/reports kept in ./data)
+docker run --rm -p 8501:8501 -e GEMINI_API_KEY=your-key -v "$(pwd)/data:/app/data" meeting-translator
 
-The microphone is used by your *browser*, so recording works with Docker (the container does the transcription).
-`localhost` counts as a secure origin; for any other address the browser requires HTTPS before it allows the microphone.
+# terminal app
+docker run -it --rm -e GEMINI_API_KEY=your-key -v "$(pwd)/data:/app/data" meeting-translator python main.py
+docker run -it --rm -e GEMINI_API_KEY=your-key -v "$(pwd)/data:/app/data" meeting-translator python main.py --batch
 
-**Terminal version**
-    python main.py                       # menu: say a sentence, show latest + previous 3, transcript, filter, setup...
-    python main.py --batch               # translate every file in input/ (each file is its own meeting) and exit
-    python main.py --meeting standup --a-name Acme --a-language English --b-name Mitra --b-language Indonesian
-    docker run --rm --env-file .env -v "$(pwd)/data:/app/data" meeting-translator python main.py --batch
+# run the automated tests (no key, no network)
+docker run --rm meeting-translator python -m unittest discover -s tests -t .
+```
+(PowerShell: use `${PWD}/data` instead of `$(pwd)/data`.)
 
-(The terminal prints times in the computer's own time zone; inside Docker that is UTC.)
+### Without Docker (Python 3.10+)
+```bash
+pip install -r requirements.txt
+cp .env.example .env            # then put your key in .env
+streamlit run app.py            # web GUI (threaded, live progress)
+python main.py                  # terminal menu
+python main.py --batch          # process input/*.json and input/*.txt
+python main.py --meeting standup --a-name Acme --a-language English --b-name Mitra --b-language Indonesian
+python -m unittest discover -s tests -t .
+```
+Voice input needs `faster-whisper` (in `requirements.txt`); the first transcription downloads the speech model
+(about 150 MB for `base`), so it needs internet once.
 
-**Models** - AI: `gemma-4-26b-a4b-it` by default (set `GEMMA_MODEL=gemma-4-31b-it` for the larger one).
-Speech: Whisper `base` by default (set `WHISPER_MODEL=small` for better Chinese/Indonesian accuracy).
+## Web GUI (advanced deliverable) and threading (advanced deliverable)
+`streamlit run app.py` – sidebar sets the meeting, the two parties and the time zone. **Live** tab: type a sentence, record your
+voice, or upload a meeting file; translations are processed on a **background worker thread**, so the page stays responsive and a
+progress bar (with a Cancel button) updates live. The latest translation and the previous 5 sentences (configurable in `config/rules.json`)
+are shown with timestamps, tone metrics, and TENSION/CHECK warnings. **Transcript & report** tab: outcome metrics, tone &
+language bar charts, meeting report, transcript, and downloads (`.txt/.json/.csv`). **Filter** tab: tone / language /
+translated-into / speaker with AND/OR.
 
-**Tests** (no API key, network, Streamlit or Whisper install needed):
 
-    python tests/run_tests.py                    # all of them
-    python tests/run_tests.py test_ai_response   # just the files whose name contains this text
+## Voice input (speech-to-text)
+* **Web GUI (continuous conversation):** Live tab → *Record voice* → check **Continuous conversation (hands-free)** → click **Start conversation**. The browser listens continuously using Web Audio VAD, slices each sentence when you pause, auto-detects the speaker's language (scoped to Party A / Party B), and queues translation automatically.
+* **Web GUI (push-to-talk):** Live tab → *Record voice* (with **Continuous conversation** unchecked): keep **Auto-detect speaker from spoken language** checked (or uncheck to force the selected speaker) → record → **Transcribe** → fix any mistakes in the box → **Translate transcript**. The browser asks for microphone permission (works on `localhost` and `https`).
+* **Terminal:** menu **10** → pick the speaker (`A`, `B`, or **3) Auto-detect from voice**) → give the path of an audio file (`.wav .mp3 .m4a .ogg .flac .webm .mp4 .aac`) → Enter accepts what was heard, type a corrected sentence to replace it, or `/cancel`.
+* **How it works:** Whisper (through `faster-whisper`, on the CPU) turns the recording into text **on this computer**;
+  only that text is sent to Gemma. The audio is never stored and never sent to the AI.
+* **Accuracy:** speak one sentence at a time in a quiet place, and check names and numbers in the transcript box before
+  translating. `WHISPER_MODEL=small` is more accurate for Chinese and Indonesian (but slower).
 
-There is one test file per area (`tests/test_io_input.py`, `test_ai_response.py`, `test_logic_route.py`, ...) plus shared fakes in `tests/helpers.py`.
+## Menu
+1 type a sentence · 2 process meeting files · 3 latest sentence + previous 3 · 4 transcript · 5 filter ·
+6 summary · **7 meeting report (new)** · 8 meeting setup · 9 quit · **10 say a sentence from a voice recording
+(audio file, speech-to-text)**
 
-**Team workflow:** see `docs/GIT_PLAN.md` (who owns which functions, branches, commit messages and timeline).
+## Configuration
+| Variable | Default | Meaning |
+|---|---|---|
+| `GEMINI_API_KEY` | – (required) | API key |
+| `GEMMA_MODEL` | `gemma-4-26b-a4b-it` | model name |
+| `WHISPER_MODEL` | `base` | speech-to-text size: `tiny` / `base` / `small` / `medium` (bigger = more accurate, slower) |
+| `DATA_FILE` | `data/records.json` | records; a `.csv` name switches to CSV storage |
+| `RULES_FILE` | `config/rules.json` | tunable thresholds (see file) |
+| `INPUT_DIR` / `REPORT_DIR` / `LOG_FILE` | `input` / `data/reports` / `data/app.log` | folders and log |
 
-## Repeatable output
-Sentence ids are a hash of meeting + time + speaker + text (+ line number for files), the model runs at temperature 0,
-and a sentence that is already stored is skipped, so re-reading the same file gives the same `data/records.json`.
-The same words said twice in a meeting are two separate sentences.
+## Meeting file formats (`input/`)
+JSON object `{"meeting": "...", "parties": {"A": {"name", "language"}, "B": {...}}, "utterances": [{"speaker": "A", "timestamp": "...", "transcript": "..."}]}`
+or a bare list of utterances, or text lines `A: hello` / `[2026-10-14T09:00:05+08:00] B: selamat pagi`.
 
-## Notes
-- Audio never leaves your machine and is never saved or sent to the AI: only text is sent to Gemma.
-- Records from the earlier triage version still load (they appear under the meeting "earlier-records").
+## Business rules (`config/rules.json` can tune the numbers)
+* **REJECT** – empty translation, or the language is not English/Indonesian/Chinese.
+* **TENSION** – tone is angry/frustrated **and** intensity ≥ 4 **and** tone confidence ≥ 0.8.
+* **CHECK** – language or translation confidence < 0.6, or the speaker used another language than set for that party.
+* **ACCEPT** – everything else. Attention score = intensity × 10 + tone weight (0-100).
+
+## Tests & CI
+`python -m unittest discover -s tests -t .` runs 150+ tests with fake AI/storage/speech (no live API, no microphone). GUI tests that use Streamlit's `AppTest` are skipped
+if Streamlit is not installed; `tests/test_gui_voice.py` tests the voice flow against a stand-in for Streamlit, so it always runs.
+GitHub Actions ([.github/workflows/tests.yml](.github/workflows/tests.yml)) runs them on every push/PR, both directly
+and inside the Docker image.
+
+## Project layout
+```
+main.py  app.py              entry points (terminal / Streamlit GUI)
+meeting_translator/
+  models.py  config.py  exceptions.py  pipeline.py  reports.py  background.py  cli.py
+  ai_layer/   logic_layer/   data_layer/   io_layer/   gui/
+tests/   config/rules.json   input/ (samples)   docs/   Dockerfile   .github/workflows/
+```
