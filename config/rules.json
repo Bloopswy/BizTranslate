@@ -1,8 +1,0 @@
-{
-  "tension_tones": ["angry", "frustrated"],
-  "tension_min_intensity": 4,
-  "tension_min_tone_confidence": 0.8,
-  "min_language_confidence": 0.6,
-  "min_translation_confidence": 0.6,
-  "context_sentences": 5
-}

@@ -1,7 +1,0 @@
-.git
-.github
-.env
-data/
-__pycache__/
-*.pyc
-docs/
