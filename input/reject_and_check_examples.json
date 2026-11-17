@@ -1,0 +1,111 @@
+{
+  "meeting": "demo-reject-and-check",
+  "parties": {
+    "A": {
+      "name": "Acme Foods",
+      "language": "English"
+    },
+    "B": {
+      "name": "Mitra Pangan",
+      "language": "Indonesian"
+    }
+  },
+  "utterances": [
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:00:05+08:00",
+      "transcript": "Hello, can you hear me clearly? The line was very bad earlier.",
+      "note": "expect: ACCEPT (normal sentence, for contrast)"
+    },
+    {
+      "speaker": "B",
+      "timestamp": "2026-10-14T16:00:19+08:00",
+      "transcript": "Ya, sekarang suaranya jelas. Silakan lanjutkan.",
+      "note": "expect: ACCEPT (normal sentence, for contrast)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:00:38+08:00",
+      "transcript": "Bonjour à tous, je voudrais discuter du prix pour le prochain trimestre, s'il vous plaît.",
+      "note": "expect: REJECT (French is not supported)"
+    },
+    {
+      "speaker": "B",
+      "timestamp": "2026-10-14T16:00:57+08:00",
+      "transcript": "おはようございます。来週の納品スケジュールについて確認したいのですが。",
+      "note": "expect: REJECT (Japanese is not supported)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:01:16+08:00",
+      "transcript": "Necesitamos confirmar la cantidad antes del viernes, por favor.",
+      "note": "expect: REJECT (Spanish is not supported)"
+    },
+    {
+      "speaker": "B",
+      "timestamp": "2026-10-14T16:01:35+08:00",
+      "transcript": "안녕하세요. 결제 조건에 대해 다시 한번 설명해 주시겠습니까?",
+      "note": "expect: REJECT (Korean is not supported)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:01:57+08:00",
+      "transcript": "qzxv wplm trrk jjjh zzzz bnnm",
+      "note": "expect: REJECT or CHECK (keyboard noise; the AI decides, usually 'Other' -> REJECT)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:02:24+08:00",
+      "transcript": "Maaf, saya akan coba berbicara dalam bahasa Indonesia supaya lebih mudah. Apakah harganya bisa dinegosiasikan?",
+      "note": "expect: CHECK (Acme Foods is set to English but speaks Indonesian)"
+    },
+    {
+      "speaker": "B",
+      "timestamp": "2026-10-14T16:02:51+08:00",
+      "transcript": "Sorry, my English is not perfect, but I think the price is too high for us.",
+      "note": "expect: CHECK (Mitra Pangan is set to Indonesian but speaks English)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:03:18+08:00",
+      "transcript": "我想确认一下，下个月的订单数量是不是两百吨？",
+      "note": "expect: CHECK (Acme Foods is set to English but speaks Chinese)"
+    },
+    {
+      "speaker": "B",
+      "timestamp": "2026-10-14T16:03:46+08:00",
+      "transcript": "我们可以接受这个价格，但是希望交货时间提前一周。",
+      "note": "expect: CHECK (Mitra Pangan is set to Indonesian but speaks Chinese)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:04:13+08:00",
+      "transcript": "Pleas send the in voice buy the end of the see son, and the pay mint terms is net thirty days, over.",
+      "note": "may be CHECK (garbled speech-to-text; only flagged if the AI says it is unsure)"
+    },
+    {
+      "speaker": "B",
+      "timestamp": "2026-10-14T16:04:45+08:00",
+      "transcript": "Wah, harganya bikin kantong bolong, tapi yaudah lah, kita ikut arus aja, asal jangan zonk lagi.",
+      "note": "may be CHECK (slang and idioms; only flagged if the AI says it is unsure)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:05:16+08:00",
+      "transcript": "Ini tidak bisa diterima! Anda sudah berjanji mengirim barang minggu lalu dan sampai sekarang belum ada apa-apa! Saya sangat marah!",
+      "note": "expect: TENSION + CHECK (angry and intense, and Acme Foods is set to English but speaks Indonesian)"
+    },
+    {
+      "speaker": "B",
+      "timestamp": "2026-10-14T16:05:45+08:00",
+      "transcript": "你们太让人失望了！这已经是第三次延误了，我非常生气，我们要取消订单！",
+      "note": "expect: TENSION + CHECK (angry and intense, and Mitra Pangan is set to Indonesian but speaks Chinese)"
+    },
+    {
+      "speaker": "A",
+      "timestamp": "2026-10-14T16:06:11+08:00",
+      "transcript": "Understood. Let's pause here and continue tomorrow with a clearer line.",
+      "note": "expect: ACCEPT (normal sentence, for contrast)"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "meeting": "product-demo",
+  "parties": {
+    "A": {"name": "Northwind", "language": "English"},
+    "B": {"name": "Hua Tai", "language": "Chinese"}
+  },
+  "utterances": [
+    {"speaker": "A", "timestamp": "2026-10-14T14:00:03+08:00", "transcript": "Good afternoon everyone. Today I will show you how the new dashboard works."},
+    {"speaker": "B", "timestamp": "2026-10-14T14:00:16+08:00", "transcript": "大家下午好，我们很期待看到这个新系统。"},
+    {"speaker": "A", "timestamp": "2026-10-14T14:00:40+08:00", "transcript": "It can export every report to Excel, and it updates automatically every hour."},
+    {"speaker": "B", "timestamp": "2026-10-14T14:01:05+08:00", "transcript": "这个功能很好。那么，如果数据出错了，谁来负责？"},
+    {"speaker": "A", "timestamp": "2026-10-14T14:01:31+08:00", "transcript": "Our support team handles that, and they respond within four hours."}
+  ]
+}
