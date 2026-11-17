@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run the automated tests (no live AI needed)
+        run: python -m unittest discover -s tests -t . -v
+
+  docker-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image (without downloading the speech model: the tests do not need it)
+        run: docker build --build-arg PRELOAD_WHISPER=0 -t meeting-translator .
+      - name: Run the tests inside the container
+        run: docker run --rm meeting-translator python -m unittest discover -s tests -t .
