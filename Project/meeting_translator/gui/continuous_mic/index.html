@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 4px 0; background: transparent; color: #e5e7eb; }
+    .card {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 8px 12px; border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(15, 23, 42, 0.35);
+    }
+    button {
+      border: none; border-radius: 6px; padding: 7px 14px; font-size: 13px;
+      font-weight: 600; cursor: pointer; color: #fff;
+      background: #2563eb; transition: background 0.15s ease;
+    }
+    button.listening { background: #dc2626; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .status { font-size: 13px; min-width: 110px; color: inherit; }
+    .meter-wrap {
+      flex: 1; min-width: 90px; height: 8px; border-radius: 999px;
+      background: rgba(148, 163, 184, 0.25); overflow: hidden;
+    }
+    .meter-bar {
+      height: 100%; width: 0%; background: #22c55e;
+      transition: width 0.06s linear;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <button id="toggleBtn" type="button">Start conversation</button>
+    <span id="statusText" class="status">Idle</span>
+    <div class="meter-wrap"><div id="meterBar" class="meter-bar"></div></div>
+  </div>
+
+  <script>
+    const TARGET_RATE = 16000;
+    const SPEECH_THRESHOLD = 0.018;
+    const SILENCE_MS = 900;
+    const MIN_SPEECH_MS = 450;
+    const MAX_SPEECH_MS = 20000;
+    const PRE_ROLL_CHUNKS = 4;
+
+    let running = false;
+    let stream = null;
+    let audioCtx = null;
+    let processor = null;
+    let source = null;
+
+    let preRoll = [];
+    let speechChunks = [];
+    let inSpeech = false;
+    let speechMs = 0;
+    let silenceMs = 0;
+    let seq = 0;
+
+    const toggleBtn = document.getElementById("toggleBtn");
+    const statusText = document.getElementById("statusText");
+    const meterBar = document.getElementById("meterBar");
+
+    function postToStreamlit(type, payload) {
+      window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, payload), "*");
+    }
+
+    function setHeight() {
+      postToStreamlit("streamlit:setFrameHeight", { height: document.body.scrollHeight + 4 });
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "streamlit:render") {
+        setHeight();
+      }
+    });
+
+    postToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+    setHeight();
+
+    function downsample(samples, inRate, outRate) {
+      if (inRate === outRate) return samples;
+      const ratio = inRate / outRate;
+      const outLen = Math.floor(samples.length / ratio);
+      const out = new Float32Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const pos = i * ratio;
+        const idx = Math.floor(pos);
+        const frac = pos - idx;
+        const s0 = samples[idx] || 0;
+        const s1 = samples[idx + 1] !== undefined ? samples[idx + 1] : s0;
+        out[i] = s0 + (s1 - s0) * frac;
+      }
+      return out;
+    }
+
+    function encodeWav(chunks, sampleRate) {
+      let totalLen = 0;
+      for (const c of chunks) totalLen += c.length;
+      const pcm = new Int16Array(totalLen);
+      let offset = 0;
+      for (const c of chunks) {
+        for (let i = 0; i < c.length; i++) {
+          const s = Math.max(-1, Math.min(1, c[i]));
+          pcm[offset++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+      }
+      const buffer = new ArrayBuffer(44 + pcm.byteLength);
+      const view = new DataView(buffer);
+      const writeStr = (off, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+      };
+      writeStr(0, "RIFF");
+      view.setUint32(4, 36 + pcm.byteLength, true);
+      writeStr(8, "WAVE");
+      writeStr(12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(36, "data");
+      view.setUint32(40, pcm.byteLength, true);
+      new Uint8Array(buffer, 44).set(new Uint8Array(pcm.buffer));
+      return new Uint8Array(buffer);
+    }
+
+    function toBase64(bytes) {
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    }
+
+    function flushUtterance() {
+      if (speechMs >= MIN_SPEECH_MS && speechChunks.length > 0) {
+        const wavBytes = encodeWav(speechChunks, TARGET_RATE);
+        seq += 1;
+        statusText.textContent = "Sent sentence #" + seq;
+        postToStreamlit("streamlit:setComponentValue", {
+          value: { seq: seq, audio_b64: toBase64(wavBytes) }
+        });
+      }
+      inSpeech = false;
+      speechChunks = [];
+      speechMs = 0;
+      silenceMs = 0;
+    }
+
+    async function startListening() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+      } catch (err) {
+        statusText.textContent = "Mic blocked: " + err.message;
+        return;
+      }
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      source = audioCtx.createMediaStreamSource(stream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+      processor.onaudioprocess = (event) => {
+        if (!running) return;
+        const raw = event.inputBuffer.getChannelData(0);
+        const down = downsample(raw, audioCtx.sampleRate, TARGET_RATE);
+        const chunkMs = (down.length / TARGET_RATE) * 1000;
+
+        let sumSq = 0;
+        for (let i = 0; i < down.length; i++) sumSq += down[i] * down[i];
+        const rms = Math.sqrt(sumSq / down.length);
+        meterBar.style.width = Math.min(100, Math.round(rms * 900)) + "%";
+
+        if (rms >= SPEECH_THRESHOLD) {
+          if (!inSpeech) {
+            inSpeech = true;
+            speechChunks = preRoll.slice();
+            speechMs = 0;
+          }
+          speechChunks.push(down);
+          speechMs += chunkMs;
+          silenceMs = 0;
+          statusText.textContent = "Speaking…";
+          if (speechMs >= MAX_SPEECH_MS) flushUtterance();
+        } else if (inSpeech) {
+          speechChunks.push(down);
+          silenceMs += chunkMs;
+          if (silenceMs >= SILENCE_MS) {
+            flushUtterance();
+            statusText.textContent = "Listening…";
+          }
+        } else {
+          preRoll.push(down);
+          if (preRoll.length > PRE_ROLL_CHUNKS) preRoll.shift();
+          statusText.textContent = "Listening…";
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+      running = true;
+      toggleBtn.textContent = "Stop conversation";
+      toggleBtn.classList.add("listening");
+      statusText.textContent = "Listening…";
+    }
+
+    function stopListening() {
+      running = false;
+      if (inSpeech) flushUtterance();
+      if (processor) { processor.disconnect(); processor = null; }
+      if (source) { source.disconnect(); source = null; }
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+      if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+      meterBar.style.width = "0%";
+      toggleBtn.textContent = "Start conversation";
+      toggleBtn.classList.remove("listening");
+      statusText.textContent = "Idle";
+    }
+
+    toggleBtn.addEventListener("click", () => {
+      if (running) stopListening();
+      else startListening();
+    });
+  </script>
+</body>
+</html>
