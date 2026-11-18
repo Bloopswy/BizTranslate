@@ -119,6 +119,16 @@ class MeetingReport:
         self._sections = list(sections) if sections is not None else self.default_sections(summary)
 
     @staticmethod
+    def analytics_sections() -> List[ReportSection]:
+        return [
+            OverviewSection(),
+            OutcomeSection(),
+            ToneSection(),
+            SpeakerSection(),
+            AttentionSection(),
+        ]
+
+    @staticmethod
     def default_sections(summary: Optional[str] = None) -> List[ReportSection]:
         return [
             ExecutiveSummarySection(summary),

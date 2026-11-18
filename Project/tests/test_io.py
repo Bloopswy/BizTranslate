@@ -5,8 +5,8 @@ from unittest import mock
 
 from meeting_translator.exceptions import TranscriptionError
 from meeting_translator.io_layer import (Console, CsvExporter, Exporter, IOManager, JsonExporter, JsonMeetingParser,
-                                         MeetingFileParser, MeetingFileReader, RecordFormatter, TextExporter,
-                                         TextMeetingParser, Transcription)
+                                         MeetingFileParser, MeetingFileReader, RecordFormatter, SummaryPdfExporter,
+                                         TextExporter, TextMeetingParser, Transcription)
 from meeting_translator.data_layer import RecordQuery
 from meeting_translator.models import Language, Outcome
 from tests.fake_console import ScriptedConsole
@@ -160,6 +160,10 @@ class ExporterTests(unittest.TestCase):
             self.assertIn("a, with comma" if not isinstance(exporter, CsvExporter) else '"a, with comma"', text)
         self.assertEqual(len(json.loads(JsonExporter().export(records))), 2)
         self.assertEqual(TextExporter().export([]), "")
+
+    def test_summary_pdf_exporter(self):
+        pdf_bytes = SummaryPdfExporter.export_pdf("test-meeting", "Line 1\nLine 2")
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
 
     def test_export_to_disk_and_failure(self):
         with TempDir() as folder:

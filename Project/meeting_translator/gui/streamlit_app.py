@@ -19,10 +19,10 @@ from ..background import Job
 from ..config import Settings
 from ..data_layer import RecordQuery
 from ..exceptions import SpeechError
-from ..io_layer import CsvExporter, Exporter, JsonExporter, RecordFormatter, TextExporter
+from ..io_layer import CsvExporter, Exporter, JsonExporter, RecordFormatter, SummaryPdfExporter, TextExporter
 from ..models import (DETECTED_LANGUAGES, ClockFormatter, Language, MeetingSetup, Outcome, Party,
                       ProcessedRecord, Tone, Utterance)
-from ..reports import MeetingReport
+from ..reports import ExecutiveSummarySection, MeetingReport
 from .services import Services
 
 ServicesProvider = Callable[[str], Services]
@@ -44,23 +44,14 @@ class ServiceRegistry:
 
 class StreamlitGui:
     ICONS = {"TENSION": "🔴", "CHECK": "🟡", "ACCEPT": "🟢", "REJECT": "⚪"}
-    FLAGS = {
-        Language.ENGLISH: "🇬🇧",
-        Language.INDONESIAN: "🇮🇩",
-        Language.CHINESE: "🇨🇳",
-    }
+    FLAGS = {}
     TIMEZONES = ["Local", "UTC", "Asia/Singapore", "Asia/Jakarta", "Asia/Shanghai", "Asia/Hong_Kong",
                  "Asia/Tokyo", "Europe/London", "America/New_York", "America/Los_Angeles", "Australia/Sydney"]
     REFRESH_SECONDS = 1.0
 
     @classmethod
     def flag_for(cls, language) -> str:
-        if isinstance(language, str):
-            for lang in Language:
-                if lang.value.lower() == language.lower() or lang.name.lower() == language.lower():
-                    return cls.FLAGS.get(lang, "🌐")
-            return "🌐"
-        return cls.FLAGS.get(language, "🌐")
+        return ""
 
     def __init__(self, settings: Settings, services_provider: Optional[ServicesProvider] = None):
         self._settings = settings
@@ -100,9 +91,15 @@ class StreamlitGui:
                 align-items: center;
                 gap: 12px;
             }
+            /* Hide show/hide password toggle button */
+            button[aria-label="Show password"],
+            button[aria-label="Hide password"],
+            [data-testid="stTextInput"] button {
+                display: none !important;
+            }
+
             .collab-flag {
-                font-size: 1.7rem;
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+                display: none;
             }
             .collab-details {
                 display: flex;
@@ -232,7 +229,7 @@ class StreamlitGui:
         with transcript:
             self._transcript_tab(setup)
         with filters:
-            self._filter_tab()
+            self._filter_tab(setup)
 
     # ================= sidebar =================
     @staticmethod
@@ -242,8 +239,12 @@ class StreamlitGui:
     def _sidebar(self):
         with st.sidebar:
             st.header("Meeting setup")
-            api_key = st.text_input("Gemini API key", value=self._settings.api_key, type="password",
-                                    help="Defaults to GEMINI_API_KEY / .env").strip()
+            api_key = self._settings.api_key
+            if not api_key:
+                api_key = st.text_input("Gemini API key", type="password",
+                                        help="Enter your Gemini API key").strip()
+            else:
+                st.caption("🔒 Gemini API: Connected (.env)")
             st.divider()
             st.session_state.setdefault("meeting_name", MeetingSetup.default_meeting_name())
             st.text_input("Meeting name", key="meeting_name")
@@ -268,13 +269,10 @@ class StreamlitGui:
     def _live_tab(self, setup: MeetingSetup, api_key: str) -> None:
         services = self._services
         p_a, p_b = setup.party("A"), setup.party("B")
-        flag_a = self.flag_for(p_a.language)
-        flag_b = self.flag_for(p_b.language)
         st.markdown(
             f"""
             <div class="collab-bridge">
                 <div class="collab-party">
-                    <span class="collab-flag">{flag_a}</span>
                     <div class="collab-details">
                         <span class="collab-label">Party A</span>
                         <span class="collab-name">{p_a.name}</span>
@@ -291,7 +289,6 @@ class StreamlitGui:
                         <span class="collab-name">{p_b.name}</span>
                         <span class="collab-lang">{p_b.language.value}</span>
                     </div>
-                    <span class="collab-flag">{flag_b}</span>
                 </div>
             </div>
             """,
@@ -521,7 +518,7 @@ class StreamlitGui:
         <div class="chat-bubble-card" style="border-left: 4px solid #6366f1; background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(255, 255, 255, 0.02));">
             <div class="bubble-meta">
                 <div>
-                    <span style="font-weight: 700; color: #f8fafc; font-size: 0.95rem;">{flag} {latest.speaker_name}</span>
+                    <span style="font-weight: 700; color: #f8fafc; font-size: 0.95rem;">{latest.speaker_name}</span>
                     <span style="color: #94a3b8; font-size: 0.8rem;">({latest.speaker_language} → {latest.target_language})</span>
                     <span style="margin-left: 8px; font-size: 0.72rem; background: rgba(99,102,241,0.25); color: #c7d2fe; padding: 2px 8px; border-radius: 4px; font-weight: 700;">LATEST</span>
                 </div>
@@ -545,14 +542,13 @@ class StreamlitGui:
         for record in reversed(previous):
             p_icon = self.ICONS.get(record.outcome, "")
             p_when = ClockFormatter.format(record.timestamp, self._tz)
-            p_flag = self.flag_for(record.speaker_language)
             p_outcome_class = f"chip-{record.outcome.lower()}"
 
             prev_html = f"""
             <div class="chat-bubble-card">
                 <div class="bubble-meta">
                     <div>
-                        <span style="font-weight: 600; color: #f1f5f9;">{p_flag} {record.speaker_name}</span>
+                        <span style="font-weight: 600; color: #f1f5f9;">{record.speaker_name}</span>
                         <span style="color: #94a3b8; font-size: 0.78rem;">({record.speaker_language})</span>
                     </div>
                     <div><code>{p_when}</code></div>
@@ -598,7 +594,7 @@ class StreamlitGui:
             right.bar_chart(pd.Series(dict(language_counts)))
         with st.expander("Summary", expanded=False):
             st.text(formatter.summary(records))
-        with st.expander("Meeting report", expanded=True):
+        with st.expander("Executive summary", expanded=True):
             summary_key = f"ai_summary_{meeting}"
             ai_summary = st.session_state.get(summary_key)
             if self._services and self._services.pipeline and records:
@@ -617,7 +613,27 @@ class StreamlitGui:
                         st.session_state.pop(summary_key, None)
                         st.rerun()
 
-            st.text(MeetingReport(summary=ai_summary).render(records, "Meeting report: " + meeting))
+            if ai_summary:
+                st.markdown(ai_summary)
+                summary_content = ai_summary
+            else:
+                rule_lines = ExecutiveSummarySection().lines(records)
+                summary_content = "\n".join(rule_lines)
+                st.text(summary_content)
+
+            if records:
+                pdf_bytes = SummaryPdfExporter.export_pdf(meeting, summary_content)
+                st.download_button(
+                    label="📄 Download Executive Summary (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"{formatter.safe_filename(meeting)}_summary.pdf",
+                    mime="application/pdf",
+                    key=f"dl_pdf_{meeting}",
+                )
+
+        with st.expander("Meeting report", expanded=True):
+            analytics = MeetingReport.analytics_sections()
+            st.text(MeetingReport(sections=analytics).render(records, "Meeting report: " + meeting))
         self._download_buttons(records, formatter.safe_filename(meeting))
         st.subheader("Transcript")
         for record in records:
@@ -637,19 +653,25 @@ class StreamlitGui:
                                    key="dl" + exporter.extension)
 
     # ================= filter tab =================
-    def _filter_tab(self) -> None:
+    def _filter_tab(self, setup: Optional[MeetingSetup] = None) -> None:
         data = self._services.data
         if len(data) == 0:
             st.info("Nothing to filter yet. Translate a sentence first.")
             return
+
+        meetings = ["(any)"] + data.meetings()
+        current_meeting = setup.meeting if setup and setup.meeting in data.meetings() else "(any)"
+        index = meetings.index(current_meeting) if current_meeting in meetings else 0
+        meeting = st.selectbox("Meeting", meetings, index=index, key="filter_meeting")
+
         c1, c2, c3, c4 = st.columns(4)
         tones = c1.multiselect("Tone", Tone.values())
         languages = c2.multiselect("Language spoken", DETECTED_LANGUAGES)
         targets = c3.multiselect("Translated into", Language.values())
-        speakers = c4.multiselect("Speaker", sorted({r.speaker_name for r in data.all()}))
+        matching_records = data.meeting_records(meeting) if meeting != "(any)" else data.all()
+        speakers = c4.multiselect("Speaker", sorted({r.speaker_name for r in matching_records}))
         mode = st.radio("When several boxes are filled in, match", ["All of them (AND)", "Any of them (OR)"], horizontal=True)
         with st.expander("More filters"):
-            meeting = st.selectbox("Meeting", ["(any)"] + data.meetings())
             outcome = st.selectbox("Outcome", ["(any)"] + [o.value for o in Outcome])
         query = RecordQuery(tones=tones, languages=languages, target_languages=targets, speakers=speakers,
                             match="any" if mode.startswith("Any") else "all",

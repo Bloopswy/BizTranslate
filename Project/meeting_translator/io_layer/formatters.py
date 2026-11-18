@@ -122,3 +122,102 @@ class TextExporter(Exporter):
                 ClockFormatter.format(r.timestamp, self._tz, with_date=True), RecordFormatter.direction(r),
                 r.transcript, r.translation, r.tone, r.outcome))
         return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+
+class SummaryPdfExporter:
+    """Exports meeting summary text into a clean PDF document."""
+
+    @staticmethod
+    def export_pdf(title: str, text: str) -> bytes:
+        try:
+            import io
+            import re
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors
+
+            buf = io.BytesIO()
+            doc = SimpleDocTemplate(buf, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
+            styles = getSampleStyleSheet()
+
+            title_style = ParagraphStyle(
+                'DocTitle',
+                parent=styles['Heading1'],
+                fontSize=18,
+                leading=22,
+                textColor=colors.HexColor('#0f172a'),
+                spaceAfter=6
+            )
+            sub_style = ParagraphStyle(
+                'DocSub',
+                parent=styles['Normal'],
+                fontSize=10,
+                leading=14,
+                textColor=colors.HexColor('#64748b'),
+                spaceAfter=14
+            )
+            body_style = ParagraphStyle(
+                'DocBody',
+                parent=styles['Normal'],
+                fontSize=10,
+                leading=15,
+                textColor=colors.HexColor('#1e293b'),
+                spaceAfter=8
+            )
+
+            story = [
+                Paragraph("Executive Summary", title_style),
+                Paragraph(f"Meeting: {title}", sub_style),
+                Spacer(1, 10),
+            ]
+
+            for line in text.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    story.append(Spacer(1, 6))
+                else:
+                    clean_line = stripped.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    clean_line = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", clean_line)
+                    clean_line = re.sub(r"\*(.*?)\*", r"<i>\1</i>", clean_line)
+                    story.append(Paragraph(clean_line, body_style))
+
+            doc.build(story)
+            return buf.getvalue()
+        except Exception:
+            return SummaryPdfExporter._fallback_pdf(title, text)
+
+    @staticmethod
+    def _fallback_pdf(title: str, text: str) -> bytes:
+        lines = [f"Meeting: {title}", ""] + text.splitlines()
+        content_lines = ['BT', '/F1 16 Tf', '50 740 Td', '(Executive Summary) Tj', '/F1 10 Tf', '0 -25 Td']
+        for line in lines[:35]:
+            safe = line.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+            content_lines.append(f'({safe}) Tj')
+            content_lines.append('0 -15 Td')
+        content_lines.append('ET')
+        stream_content = '\n'.join(content_lines).encode('latin-1', errors='replace')
+        stream_len = len(stream_content)
+
+        pdf = bytearray()
+        pdf.extend(b'%PDF-1.4\n')
+        offsets = []
+
+        def add_obj(body: bytes):
+            offsets.append(len(pdf))
+            pdf.extend(f'{len(offsets)} 0 obj\n'.encode('ascii'))
+            pdf.extend(body)
+            pdf.extend(b'\nendobj\n')
+
+        add_obj(b'<< /Type /Catalog /Pages 2 0 R >>')
+        add_obj(b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>')
+        add_obj(b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources 4 0 R >>')
+        add_obj(b'<< /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >>')
+        add_obj(f'<< /Length {stream_len} >>\nstream\n'.encode('ascii') + stream_content + b'\nendstream')
+
+        xref_offset = len(pdf)
+        pdf.extend(f'xref\n0 {len(offsets) + 1}\n0000000000 65535 f \n'.encode('ascii'))
+        for off in offsets:
+            pdf.extend(f'{off:010d} 00000 n \n'.encode('ascii'))
+        pdf.extend(f'trailer\n<< /Size {len(offsets) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n'.encode('ascii'))
+        return bytes(pdf)
