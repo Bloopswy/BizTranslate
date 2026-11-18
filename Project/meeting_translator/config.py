@@ -115,7 +115,11 @@ class Settings:
     @property
     def whisper_model(self) -> str:
         """Speech-to-text model size: tiny / base / small / medium (bigger = more accurate, slower)."""
-        return self._env.get("WHISPER_MODEL", self.DEFAULT_WHISPER_MODEL).strip() or self.DEFAULT_WHISPER_MODEL
+        raw = self._env.get("WHISPER_MODEL", self.DEFAULT_WHISPER_MODEL).strip()
+        if not raw:
+            return self.DEFAULT_WHISPER_MODEL
+        cleaned = raw.split()[0].split("#")[0].strip()
+        return cleaned or self.DEFAULT_WHISPER_MODEL
 
     @property
     def data_path(self) -> str:

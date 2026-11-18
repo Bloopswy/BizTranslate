@@ -141,8 +141,15 @@ class WhisperTranscriber(SpeechTranscriber):
     @staticmethod
     def _run(model, audio: bytes, code: Optional[str]):
         """One pass over the audio. Must consume the segment generator. Returns (text, info)."""
-        segments, info = model.transcribe(io.BytesIO(audio), language=code, beam_size=5,
-                                          temperature=0.0, vad_filter=True)
+        segments, info = model.transcribe(
+            io.BytesIO(audio),
+            language=code,
+            beam_size=5,
+            temperature=0.0,
+            vad_filter=True,
+            condition_on_previous_text=False,
+            initial_prompt=None,
+        )
         return " ".join(segment.text.strip() for segment in segments).strip(), info
 
     def transcribe(self, audio: bytes, language: Optional[Language] = None,

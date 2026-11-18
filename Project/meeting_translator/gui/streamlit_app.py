@@ -44,9 +44,23 @@ class ServiceRegistry:
 
 class StreamlitGui:
     ICONS = {"TENSION": "🔴", "CHECK": "🟡", "ACCEPT": "🟢", "REJECT": "⚪"}
+    FLAGS = {
+        Language.ENGLISH: "🇬🇧",
+        Language.INDONESIAN: "🇮🇩",
+        Language.CHINESE: "🇨🇳",
+    }
     TIMEZONES = ["Local", "UTC", "Asia/Singapore", "Asia/Jakarta", "Asia/Shanghai", "Asia/Hong_Kong",
                  "Asia/Tokyo", "Europe/London", "America/New_York", "America/Los_Angeles", "Australia/Sydney"]
     REFRESH_SECONDS = 1.0
+
+    @classmethod
+    def flag_for(cls, language) -> str:
+        if isinstance(language, str):
+            for lang in Language:
+                if lang.value.lower() == language.lower() or lang.name.lower() == language.lower():
+                    return cls.FLAGS.get(lang, "🌐")
+            return "🌐"
+        return cls.FLAGS.get(language, "🌐")
 
     def __init__(self, settings: Settings, services_provider: Optional[ServicesProvider] = None):
         self._settings = settings
@@ -58,10 +72,153 @@ class StreamlitGui:
     def run(self) -> None:
         st.set_page_config(page_title="Meeting Translator", page_icon="🗣️", layout="wide")
         st.markdown(
-            "<style>"
-            ".block-container { padding-top: 2rem; padding-bottom: 2rem; }"
-            "[data-testid='stMetricValue'] { font-size: 1.35rem; }"
-            "</style>",
+            """<style>
+            .block-container {
+                padding-top: 1.8rem;
+                padding-bottom: 3rem;
+                max-width: 1250px;
+            }
+            [data-testid='stMetricValue'] {
+                font-size: 1.35rem;
+                font-weight: 700;
+            }
+
+            /* Collaborative Bilingual Bridge */
+            .collab-bridge {
+                background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.85));
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
+                padding: 14px 20px;
+                margin-bottom: 1.2rem;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            }
+            .collab-party {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .collab-flag {
+                font-size: 1.7rem;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+            }
+            .collab-details {
+                display: flex;
+                flex-direction: column;
+            }
+            .collab-label {
+                font-size: 0.72rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: #94a3b8;
+                font-weight: 600;
+            }
+            .collab-name {
+                font-size: 1rem;
+                font-weight: 700;
+                color: #f8fafc;
+            }
+            .collab-lang {
+                font-size: 0.8rem;
+                color: #a5b4fc;
+            }
+            .collab-center {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                padding: 0 16px;
+            }
+            .collab-badge {
+                background: rgba(99, 102, 241, 0.15);
+                border: 1px solid rgba(99, 102, 241, 0.35);
+                color: #c7d2fe;
+                font-size: 0.78rem;
+                font-weight: 600;
+                padding: 4px 14px;
+                border-radius: 9999px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                letter-spacing: 0.02em;
+            }
+            .collab-meeting-name {
+                font-size: 0.75rem;
+                color: #64748b;
+                margin-top: 4px;
+            }
+
+            /* Chat bubble cards */
+            .chat-bubble-card {
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
+                padding: 16px 20px;
+                margin-bottom: 12px;
+                transition: transform 0.15s ease, border-color 0.15s ease;
+            }
+            .chat-bubble-card:hover {
+                border-color: rgba(99, 102, 241, 0.35);
+                transform: translateY(-1px);
+            }
+            .bubble-meta {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+                font-size: 0.82rem;
+                color: #94a3b8;
+            }
+            .bubble-translation {
+                font-size: 1.25rem;
+                font-weight: 700;
+                color: #ffffff;
+                line-height: 1.4;
+                margin-bottom: 8px;
+            }
+            .bubble-original {
+                font-size: 0.88rem;
+                color: #cbd5e1;
+                background: rgba(0, 0, 0, 0.3);
+                border-left: 3px solid #6366f1;
+                padding: 6px 12px;
+                border-radius: 6px;
+                margin-bottom: 12px;
+            }
+            .bubble-chips {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+            .chip {
+                font-size: 0.75rem;
+                font-weight: 600;
+                padding: 3px 10px;
+                border-radius: 6px;
+            }
+            .chip-accept { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+            .chip-tension { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+            .chip-check { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+            .chip-reject { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+            .chip-metric { background: rgba(255, 255, 255, 0.05); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.08); }
+
+            /* Primary CTA Buttons */
+            div[data-testid="stFormSubmitButton"] > button {
+                background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
+                border: none !important;
+                color: #ffffff !important;
+                font-weight: 600 !important;
+                border-radius: 8px !important;
+                transition: box-shadow 0.2s ease, transform 0.1s ease !important;
+            }
+            div[data-testid="stFormSubmitButton"] > button:hover {
+                box-shadow: 0 4px 16px rgba(99, 102, 241, 0.45) !important;
+                transform: translateY(-1px);
+            }
+            </style>""",
             unsafe_allow_html=True,
         )
         st.title("🗣️ Meeting Translator")
@@ -111,8 +268,35 @@ class StreamlitGui:
     def _live_tab(self, setup: MeetingSetup, api_key: str) -> None:
         services = self._services
         p_a, p_b = setup.party("A"), setup.party("B")
-        st.caption("Active meeting: **%s** · **A:** %s ↔ **B:** %s" % (
-            setup.meeting, p_a.describe(), p_b.describe()))
+        flag_a = self.flag_for(p_a.language)
+        flag_b = self.flag_for(p_b.language)
+        st.markdown(
+            f"""
+            <div class="collab-bridge">
+                <div class="collab-party">
+                    <span class="collab-flag">{flag_a}</span>
+                    <div class="collab-details">
+                        <span class="collab-label">Party A</span>
+                        <span class="collab-name">{p_a.name}</span>
+                        <span class="collab-lang">{p_a.language.value}</span>
+                    </div>
+                </div>
+                <div class="collab-center">
+                    <div class="collab-badge">🤝 Bilingual Bridge 🤝</div>
+                    <div class="collab-meeting-name">Session: {setup.meeting}</div>
+                </div>
+                <div class="collab-party" style="justify-content: flex-end; text-align: right;">
+                    <div class="collab-details">
+                        <span class="collab-label">Party B</span>
+                        <span class="collab-name">{p_b.name}</span>
+                        <span class="collab-lang">{p_b.language.value}</span>
+                    </div>
+                    <span class="collab-flag">{flag_b}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         speaker_id = st.radio("Who is speaking?", MeetingSetup.PARTY_IDS, horizontal=True,
                               format_func=lambda pid: "%s: %s" % (pid, setup.party(pid).describe()))
@@ -258,7 +442,15 @@ class StreamlitGui:
             return
         detected = setup.party_for_language(result.language)
         effective_speaker = detected if detected is not None else speaker_id
-        lang_label = result.language.value if result.language else "Unknown language"
+        if detected is None:
+            speaker_lang = setup.party(effective_speaker).language
+            try:
+                fallback_result = self._services.transcriber.transcribe(audio_bytes, speaker_lang)
+                if not fallback_result.is_empty:
+                    result = fallback_result
+            except SpeechError:
+                pass
+        lang_label = result.language.value if result.language else setup.party(effective_speaker).language.value
         st.session_state["voice_continuous_status"] = "Heard (%s → %s): %s" % (
             lang_label, setup.party(effective_speaker).name, result.text)
         self._submit_text(setup, effective_speaker, result.text, api_key, "voice")
@@ -320,26 +512,60 @@ class StreamlitGui:
             st.info("Nothing has been said in this meeting yet.")
             return
         st.subheader("Latest translation")
-        with st.container(border=True):
-            icon = self.ICONS.get(latest.outcome, "")
-            when = ClockFormatter.format(latest.timestamp, self._tz)
-            st.caption("%s **%s** · %s (%s → %s) · `%s`" % (
-                icon, latest.outcome, latest.speaker_name, latest.speaker_language, latest.target_language, when))
-            st.markdown("## %s" % latest.translation)
-            st.write("**Said:** %s" % latest.transcript)
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Tone", latest.tone)
-            m2.metric("Intensity", "%d / 5" % latest.intensity)
-            m3.metric("Attention score", "%d / 100" % latest.score)
-            if latest.outcome in (Outcome.TENSION.value, Outcome.CHECK.value, Outcome.REJECT.value):
-                st.warning("; ".join(latest.reasons))
+        icon = self.ICONS.get(latest.outcome, "")
+        when = ClockFormatter.format(latest.timestamp, self._tz)
+        flag = self.flag_for(latest.speaker_language)
+        outcome_chip_class = f"chip-{latest.outcome.lower()}"
+
+        card_html = f"""
+        <div class="chat-bubble-card" style="border-left: 4px solid #6366f1; background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(255, 255, 255, 0.02));">
+            <div class="bubble-meta">
+                <div>
+                    <span style="font-weight: 700; color: #f8fafc; font-size: 0.95rem;">{flag} {latest.speaker_name}</span>
+                    <span style="color: #94a3b8; font-size: 0.8rem;">({latest.speaker_language} → {latest.target_language})</span>
+                    <span style="margin-left: 8px; font-size: 0.72rem; background: rgba(99,102,241,0.25); color: #c7d2fe; padding: 2px 8px; border-radius: 4px; font-weight: 700;">LATEST</span>
+                </div>
+                <div><code>{when}</code></div>
+            </div>
+            <div class="bubble-translation">"{latest.translation}"</div>
+            <div class="bubble-original"><strong>Said:</strong> {latest.transcript}</div>
+            <div class="bubble-chips">
+                <span class="chip {outcome_chip_class}">{icon} {latest.outcome}</span>
+                <span class="chip chip-metric">🎭 Tone: {latest.tone}</span>
+                <span class="chip chip-metric">⚡ Intensity: {latest.intensity} / 5</span>
+                <span class="chip chip-metric">🎯 Attention: {latest.score} / 100</span>
+            </div>
+        </div>
+        """
+        st.markdown(card_html, unsafe_allow_html=True)
+        if latest.outcome in (Outcome.TENSION.value, Outcome.CHECK.value, Outcome.REJECT.value):
+            st.warning("; ".join(latest.reasons))
+
         st.subheader("Previous %d sentences" % len(previous) if previous else "No earlier sentences")
         for record in reversed(previous):
-            with st.container(border=True):
-                st.markdown("%s `%s` **%s** (%s) · *%s*  \n%s  \n→ **%s**" % (
-                    self.ICONS.get(record.outcome, ""), ClockFormatter.format(record.timestamp, self._tz),
-                    record.speaker_name, record.speaker_language, record.tone,
-                    record.transcript, record.translation))
+            p_icon = self.ICONS.get(record.outcome, "")
+            p_when = ClockFormatter.format(record.timestamp, self._tz)
+            p_flag = self.flag_for(record.speaker_language)
+            p_outcome_class = f"chip-{record.outcome.lower()}"
+
+            prev_html = f"""
+            <div class="chat-bubble-card">
+                <div class="bubble-meta">
+                    <div>
+                        <span style="font-weight: 600; color: #f1f5f9;">{p_flag} {record.speaker_name}</span>
+                        <span style="color: #94a3b8; font-size: 0.78rem;">({record.speaker_language})</span>
+                    </div>
+                    <div><code>{p_when}</code></div>
+                </div>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin-bottom: 6px;">"{record.translation}"</div>
+                <div style="font-size: 0.85rem; color: #cbd5e1; background: rgba(0,0,0,0.2); padding: 5px 10px; border-radius: 6px; margin-bottom: 8px;"><strong>Said:</strong> {record.transcript}</div>
+                <div class="bubble-chips">
+                    <span class="chip {p_outcome_class}">{p_icon} {record.outcome}</span>
+                    <span class="chip chip-metric">🎭 {record.tone}</span>
+                </div>
+            </div>
+            """
+            st.markdown(prev_html, unsafe_allow_html=True)
 
     # ================= transcript tab =================
     def _transcript_tab(self, setup: MeetingSetup) -> None:
