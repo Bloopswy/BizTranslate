@@ -61,7 +61,7 @@ class StreamlitGui:
 
     # ================= entry point =================
     def run(self) -> None:
-        st.set_page_config(page_title="Meeting Translator", page_icon="🗣️", layout="wide")
+        st.set_page_config(page_title="BizTranslate", page_icon="🌐", layout="wide")
         st.markdown(
             """<style>
             .block-container {
@@ -100,6 +100,20 @@ class StreamlitGui:
 
             .collab-flag {
                 display: none;
+            }
+            .chat-scroll-container {
+                max-height: 460px;
+                overflow-y: auto;
+                padding-right: 6px;
+                margin-top: 6px;
+                border-radius: 8px;
+            }
+            .chat-scroll-container::-webkit-scrollbar {
+                width: 6px;
+            }
+            .chat-scroll-container::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 4px;
             }
             .collab-details {
                 display: flex;
@@ -218,7 +232,7 @@ class StreamlitGui:
             </style>""",
             unsafe_allow_html=True,
         )
-        st.title("🗣️ Meeting Translator")
+        st.title("🌐 BizTranslate")
         st.caption("Live interpreter for a two-party business meeting (English / Indonesian / Chinese). "
                    "Local speech-to-text; only text is sent to the AI for translation and tone analysis.")
         api_key, setup = self._sidebar()
@@ -234,7 +248,9 @@ class StreamlitGui:
     # ================= sidebar =================
     @staticmethod
     def _start_new_meeting() -> None:
-        st.session_state["meeting_name"] = "meeting-" + datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        new_name = "meeting-" + datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        st.session_state["meeting_name"] = new_name
+        st.session_state["selected_meeting_choice"] = new_name
 
     def _sidebar(self):
         with st.sidebar:
@@ -247,7 +263,35 @@ class StreamlitGui:
                 st.caption("🔒 Gemini API: Connected (.env)")
             st.divider()
             st.session_state.setdefault("meeting_name", MeetingSetup.default_meeting_name())
-            st.text_input("Meeting name", key="meeting_name")
+
+            existing_meetings = []
+            if self._services and self._services.data:
+                existing_meetings = self._services.data.meetings()
+            else:
+                try:
+                    from ..data_layer import DataManager, RepositoryFactory
+                    dm = DataManager(RepositoryFactory.for_path(self._settings.data_path))
+                    dm.load()
+                    existing_meetings = dm.meetings()
+                except Exception:
+                    existing_meetings = []
+
+            all_meetings = list(existing_meetings)
+            current = st.session_state.get("meeting_name", "")
+            if current and current not in all_meetings:
+                all_meetings.insert(0, current)
+
+            if len(all_meetings) > 1:
+                def _on_meeting_change():
+                    st.session_state["meeting_name"] = st.session_state["selected_meeting_choice"]
+
+                idx = all_meetings.index(current) if current in all_meetings else 0
+                st.selectbox("Select previous meeting", all_meetings, index=idx, key="selected_meeting_choice",
+                             on_change=_on_meeting_change, help="Choose an existing meeting to continue the conversation")
+                st.text_input("Active meeting name", key="meeting_name")
+            else:
+                st.text_input("Meeting name", key="meeting_name")
+
             st.button("Start a new meeting", on_click=self._start_new_meeting, use_container_width=True)
             parties = {}
             defaults = {"A": ("Party A", Language.ENGLISH), "B": ("Party B", Language.INDONESIAN)}
@@ -514,54 +558,62 @@ class StreamlitGui:
         flag = self.flag_for(latest.speaker_language)
         outcome_chip_class = f"chip-{latest.outcome.lower()}"
 
-        card_html = f"""
-        <div class="chat-bubble-card" style="border-left: 4px solid #6366f1; background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(255, 255, 255, 0.02));">
-            <div class="bubble-meta">
-                <div>
-                    <span style="font-weight: 700; color: #f8fafc; font-size: 0.95rem;">{latest.speaker_name}</span>
-                    <span style="color: #94a3b8; font-size: 0.8rem;">({latest.speaker_language} → {latest.target_language})</span>
-                    <span style="margin-left: 8px; font-size: 0.72rem; background: rgba(99,102,241,0.25); color: #c7d2fe; padding: 2px 8px; border-radius: 4px; font-weight: 700;">LATEST</span>
-                </div>
-                <div><code>{when}</code></div>
-            </div>
-            <div class="bubble-translation">"{latest.translation}"</div>
-            <div class="bubble-original"><strong>Said:</strong> {latest.transcript}</div>
-            <div class="bubble-chips">
-                <span class="chip {outcome_chip_class}">{icon} {latest.outcome}</span>
-                <span class="chip chip-metric">🎭 Tone: {latest.tone}</span>
-                <span class="chip chip-metric">⚡ Intensity: {latest.intensity} / 5</span>
-                <span class="chip chip-metric">🎯 Attention: {latest.score} / 100</span>
-            </div>
-        </div>
-        """
+        raw_latest = f"""
+<div class="chat-bubble-card" style="border-left: 4px solid #6366f1; background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(255, 255, 255, 0.02));">
+<div class="bubble-meta">
+<div>
+<span style="font-weight: 700; color: #f8fafc; font-size: 0.95rem;">{latest.speaker_name}</span>
+<span style="color: #94a3b8; font-size: 0.8rem;">({latest.speaker_language} → {latest.target_language})</span>
+<span style="margin-left: 8px; font-size: 0.72rem; background: rgba(99,102,241,0.25); color: #c7d2fe; padding: 2px 8px; border-radius: 4px; font-weight: 700;">LATEST</span>
+</div>
+<div><code>{when}</code></div>
+</div>
+<div class="bubble-translation">"{latest.translation}"</div>
+<div class="bubble-original"><strong>Said:</strong> {latest.transcript}</div>
+<div class="bubble-chips">
+<span class="chip {outcome_chip_class}">{icon} {latest.outcome}</span>
+<span class="chip chip-metric">🎭 Tone: {latest.tone}</span>
+<span class="chip chip-metric">⚡ Intensity: {latest.intensity} / 5</span>
+<span class="chip chip-metric">🎯 Attention: {latest.score} / 100</span>
+</div>
+</div>
+"""
+        card_html = "\n".join(line.strip() for line in raw_latest.splitlines() if line.strip())
         st.markdown(card_html, unsafe_allow_html=True)
         if latest.outcome in (Outcome.TENSION.value, Outcome.CHECK.value, Outcome.REJECT.value):
             st.warning("; ".join(latest.reasons))
 
-        st.subheader("Previous %d sentences" % len(previous) if previous else "No earlier sentences")
-        for record in reversed(previous):
-            p_icon = self.ICONS.get(record.outcome, "")
-            p_when = ClockFormatter.format(record.timestamp, self._tz)
-            p_outcome_class = f"chip-{record.outcome.lower()}"
+        if previous:
+            st.markdown(f"<div style='font-size: 0.82rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 8px 0;'>Previous {len(previous)} Sentences</div>", unsafe_allow_html=True)
+            bubble_cards = []
+            for record in reversed(previous):
+                p_icon = self.ICONS.get(record.outcome, "")
+                p_when = ClockFormatter.format(record.timestamp, self._tz)
+                p_outcome_class = f"chip-{record.outcome.lower()}"
 
-            prev_html = f"""
-            <div class="chat-bubble-card">
-                <div class="bubble-meta">
-                    <div>
-                        <span style="font-weight: 600; color: #f1f5f9;">{record.speaker_name}</span>
-                        <span style="color: #94a3b8; font-size: 0.78rem;">({record.speaker_language})</span>
-                    </div>
-                    <div><code>{p_when}</code></div>
-                </div>
-                <div style="font-size: 1.1rem; font-weight: 600; color: #f8fafc; margin-bottom: 6px;">"{record.translation}"</div>
-                <div style="font-size: 0.85rem; color: #cbd5e1; background: rgba(0,0,0,0.2); padding: 5px 10px; border-radius: 6px; margin-bottom: 8px;"><strong>Said:</strong> {record.transcript}</div>
-                <div class="bubble-chips">
-                    <span class="chip {p_outcome_class}">{p_icon} {record.outcome}</span>
-                    <span class="chip chip-metric">🎭 {record.tone}</span>
-                </div>
-            </div>
-            """
-            st.markdown(prev_html, unsafe_allow_html=True)
+                raw_card = f"""
+<div class="chat-bubble-card">
+<div class="bubble-meta">
+<div>
+<span style="font-weight: 600; color: #f1f5f9;">{record.speaker_name}</span>
+<span style="color: #94a3b8; font-size: 0.78rem;">({record.speaker_language})</span>
+</div>
+<div><code>{p_when}</code></div>
+</div>
+<div style="font-size: 1.05rem; font-weight: 600; color: #f8fafc; margin-bottom: 6px;">"{record.translation}"</div>
+<div style="font-size: 0.85rem; color: #cbd5e1; background: rgba(0,0,0,0.2); padding: 5px 10px; border-radius: 6px; margin-bottom: 8px;"><strong>Said:</strong> {record.transcript}</div>
+<div class="bubble-chips">
+<span class="chip {p_outcome_class}">{p_icon} {record.outcome}</span>
+<span class="chip chip-metric">🎭 {record.tone}</span>
+</div>
+</div>
+"""
+                bubble_cards.append("\n".join(line.strip() for line in raw_card.splitlines() if line.strip()))
+
+            feed_body = "".join(bubble_cards)
+            st.markdown(f'<div class="chat-scroll-container">{feed_body}</div>', unsafe_allow_html=True)
+        else:
+            st.caption("No earlier sentences.")
 
     # ================= transcript tab =================
     def _transcript_tab(self, setup: MeetingSetup) -> None:
@@ -585,13 +637,14 @@ class StreamlitGui:
                 column.metric("%s %s" % (self.ICONS[outcome.value], outcome.value.title()),
                               outcome_counts.get(outcome.value, 0))
 
-            tone_counts = Counter(r.tone for r in records)
-            language_counts = Counter(r.detected_language for r in records)
-            left, right = st.columns(2)
-            left.caption("Sentences by tone")
-            left.bar_chart(pd.Series({t: tone_counts[t] for t in Tone.values() if t in tone_counts}))
-            right.caption("Sentences by language spoken")
-            right.bar_chart(pd.Series(dict(language_counts)))
+            with st.expander("📊 Visual Analytics & Charts", expanded=False):
+                tone_counts = Counter(r.tone for r in records)
+                language_counts = Counter(r.detected_language for r in records)
+                left, right = st.columns(2)
+                left.caption("Sentences by tone")
+                left.bar_chart(pd.Series({t: tone_counts[t] for t in Tone.values() if t in tone_counts}))
+                right.caption("Sentences by language spoken")
+                right.bar_chart(pd.Series(dict(language_counts)))
         with st.expander("Summary", expanded=False):
             st.text(formatter.summary(records))
         with st.expander("Executive summary", expanded=True):
@@ -631,7 +684,7 @@ class StreamlitGui:
                     key=f"dl_pdf_{meeting}",
                 )
 
-        with st.expander("Meeting report", expanded=True):
+        with st.expander("Meeting report", expanded=False):
             analytics = MeetingReport.analytics_sections()
             st.text(MeetingReport(sections=analytics).render(records, "Meeting report: " + meeting))
         self._download_buttons(records, formatter.safe_filename(meeting))
@@ -644,13 +697,19 @@ class StreamlitGui:
                     record.transcript, record.translation))
 
     def _download_buttons(self, records: List[ProcessedRecord], stem: str) -> None:
+        if not records:
+            return
         exporters: List[Exporter] = [TextExporter(self._tz), JsonExporter(), CsvExporter()]
         mimes = {".txt": "text/plain", ".json": "application/json", ".csv": "text/csv"}
-        for column, exporter in zip(st.columns(len(exporters)), exporters):
-            with column:
-                st.download_button("Download %s" % exporter.extension, exporter.export(records),
-                                   file_name=stem + exporter.extension, mime=mimes[exporter.extension],
-                                   key="dl" + exporter.extension)
+        labels = {".txt": "📝 Transcript (.txt)", ".json": "⚙️ Structured (.json)", ".csv": "📊 Data (.csv)"}
+        with st.container(border=True):
+            st.caption("📥 Export Raw Transcript & Data")
+            for column, exporter in zip(st.columns(len(exporters)), exporters):
+                with column:
+                    st.download_button(labels.get(exporter.extension, "Download %s" % exporter.extension),
+                                       exporter.export(records),
+                                       file_name=stem + exporter.extension, mime=mimes[exporter.extension],
+                                       key="dl" + exporter.extension, use_container_width=True)
 
     # ================= filter tab =================
     def _filter_tab(self, setup: Optional[MeetingSetup] = None) -> None:
