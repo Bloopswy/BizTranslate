@@ -599,7 +599,25 @@ class StreamlitGui:
         with st.expander("Summary", expanded=False):
             st.text(formatter.summary(records))
         with st.expander("Meeting report", expanded=True):
-            st.text(MeetingReport().render(records, "Meeting report: " + meeting))
+            summary_key = f"ai_summary_{meeting}"
+            ai_summary = st.session_state.get(summary_key)
+            if self._services and self._services.pipeline and records:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.button("✨ Generate AI Executive Summary (Gemini)", key=f"btn_ai_{meeting}"):
+                        with st.spinner("Analyzing meeting discussion with Gemini AI..."):
+                            summary_result = self._services.pipeline.ai.summarize(records)
+                            if summary_result and summary_result.strip():
+                                st.session_state[summary_key] = summary_result.strip()
+                                st.rerun()
+                            else:
+                                st.warning("AI summary could not be generated. Using rule-based executive summary.")
+                with col2:
+                    if ai_summary and st.button("🔄 Reset Summary", key=f"btn_reset_{meeting}"):
+                        st.session_state.pop(summary_key, None)
+                        st.rerun()
+
+            st.text(MeetingReport(summary=ai_summary).render(records, "Meeting report: " + meeting))
         self._download_buttons(records, formatter.safe_filename(meeting))
         st.subheader("Transcript")
         for record in records:

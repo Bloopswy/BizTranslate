@@ -1,8 +1,9 @@
 import unittest
 
 from meeting_translator.models import Outcome
-from meeting_translator.reports import (AttentionSection, MeetingReport, OutcomeSection, OverviewSection,
-                                        ReportSection, SpeakerSection, ToneSection)
+from meeting_translator.reports import (AttentionSection, ExecutiveSummarySection, MeetingReport,
+                                        OutcomeSection, OverviewSection, ReportSection,
+                                        SpeakerSection, ToneSection)
 from tests.helpers import saved
 
 
@@ -38,6 +39,19 @@ class ReportTests(unittest.TestCase):
         for heading in ("Overview", "Outcomes", "Tone", "Speakers", "Moments needing attention"):
             self.assertIn(heading, text)
         self.assertIn("No sentences to report on", MeetingReport().render([]))
+
+    def test_executive_summary_rule_based(self):
+        r = records()
+        section = ExecutiveSummarySection()
+        lines = section.lines(r)
+        self.assertTrue(any("Participants" in l for l in lines))
+        self.assertTrue(any("Climate" in l for l in lines))
+
+    def test_executive_summary_provided(self):
+        r = records()
+        section = ExecutiveSummarySection(summary="AI generated executive summary\nSecond line")
+        lines = section.lines(r)
+        self.assertEqual(lines, ["AI generated executive summary", "Second line"])
 
     def test_open_closed_custom_section(self):
         class Shout(ReportSection):

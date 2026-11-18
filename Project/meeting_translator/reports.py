@@ -80,15 +80,54 @@ class AttentionSection(ReportSection):
         return ["[%s] %s %s (score %d): %s" % (ClockFormatter.format(r.timestamp), r.outcome, r.speaker_name,
                                                 r.score, r.transcript) for r in ranked]
 
+
+class ExecutiveSummarySection(ReportSection):
+    """Concise executive overview of meeting discussion, key points, and consensus."""
+
+    title = "Executive Summary"
+
+    def __init__(self, summary: Optional[str] = None):
+        self._summary = summary
+
+    def lines(self, records: List[ProcessedRecord]) -> List[str]:
+        if not records:
+            return ["No sentences recorded."]
+        if self._summary and self._summary.strip():
+            return [line.strip() for line in self._summary.strip().splitlines() if line.strip()]
+
+        speakers = sorted({r.speaker_name for r in records})
+        accepted = [r for r in records if r.outcome == Outcome.ACCEPT.value]
+        tensions = sum(1 for r in records if r.outcome == Outcome.TENSION.value)
+        rate = (len(accepted) / len(records)) * 100.0 if records else 0.0
+        climate = "Constructive (no tension detected)" if tensions == 0 else f"{tensions} tense moment(s) flagged"
+
+        lines = [
+            f"Participants : {', '.join(speakers)}",
+            f"Climate      : {climate} (Consensus: {rate:.0f}%)",
+            "Key discussion points:",
+        ]
+        sample_records = accepted[:3] if accepted else records[:2]
+        for r in sample_records:
+            lines.append(f"  • {r.speaker_name}: \"{r.translation}\"")
+        return lines
+
+
 class MeetingReport:
     """Renders a list of sections over a list of records."""
 
-    def __init__(self, sections: Optional[Iterable[ReportSection]] = None):
-        self._sections = list(sections) if sections is not None else self.default_sections()
+    def __init__(self, sections: Optional[Iterable[ReportSection]] = None, summary: Optional[str] = None):
+        self._sections = list(sections) if sections is not None else self.default_sections(summary)
 
     @staticmethod
-    def default_sections() -> List[ReportSection]:
-        return [OverviewSection(), OutcomeSection(), ToneSection(), SpeakerSection(), AttentionSection()]
+    def default_sections(summary: Optional[str] = None) -> List[ReportSection]:
+        return [
+            ExecutiveSummarySection(summary),
+            OverviewSection(),
+            OutcomeSection(),
+            ToneSection(),
+            SpeakerSection(),
+            AttentionSection(),
+        ]
 
     def render(self, records: List[ProcessedRecord], title: str = "Meeting report") -> str:
         if not records:

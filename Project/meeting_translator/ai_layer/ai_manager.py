@@ -50,3 +50,23 @@ class AIManager:
 
         logging.error("Giving up on record %s after %d attempts", utterance.id, self._max_attempts)
         return None
+
+    def summarize(self, records: List[ProcessedRecord]) -> Optional[str]:
+        """Ask the AI for a concise executive summary of the meeting."""
+        if not records:
+            return None
+        transcript_lines = [
+            f"{r.speaker_name} ({r.speaker_language}): {r.transcript} -> {r.translation}"
+            for r in records
+        ]
+        system = (
+            "You are an executive business meeting secretary. In 3 to 4 concise bullet points, "
+            "summarize this bilingual business meeting's key discussion topics, counterpart proposals, "
+            "and consensus reached."
+        )
+        prompt = "Meeting dialogue:\n" + "\n".join(transcript_lines)
+        try:
+            return self._client.generate(system, prompt).strip()
+        except AIError as error:
+            logging.warning("AI summarization failed: %s", error)
+            return None

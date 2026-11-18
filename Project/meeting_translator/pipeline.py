@@ -35,6 +35,10 @@ class MeetingPipeline:
         self._data = data
         self._observers: List[PipelineObserver] = list(observers or [])
 
+    @property
+    def ai(self) -> AIManager:
+        return self._ai
+
     def add_observer(self, observer: PipelineObserver) -> None:
         self._observers.append(observer)
 
