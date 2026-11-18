@@ -611,7 +611,7 @@ class StreamlitGui:
                                 st.session_state[summary_key] = summary_result.strip()
                                 st.rerun()
                             else:
-                                st.warning("AI summary could not be generated. Using rule-based executive summary.")
+                                st.warning("AI model was temporarily busy or unreachable. Showing rule-based summary — click to retry.")
                 with col2:
                     if ai_summary and st.button("🔄 Reset Summary", key=f"btn_reset_{meeting}"):
                         st.session_state.pop(summary_key, None)

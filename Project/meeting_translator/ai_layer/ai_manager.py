@@ -65,8 +65,14 @@ class AIManager:
             "and consensus reached."
         )
         prompt = "Meeting dialogue:\n" + "\n".join(transcript_lines)
-        try:
-            return self._client.generate(system, prompt).strip()
-        except AIError as error:
-            logging.warning("AI summarization failed: %s", error)
-            return None
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                return self._client.generate(system, prompt).strip()
+            except AIError as error:
+                logging.warning("AI summarization attempt %d/%d failed: %s",
+                                attempt, self._max_attempts, error)
+            if attempt < self._max_attempts:
+                self._sleep(2 ** attempt)
+
+        logging.error("Giving up on AI summarization after %d attempts", self._max_attempts)
+        return None
